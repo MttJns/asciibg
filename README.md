@@ -67,11 +67,27 @@ large bright subject fails the isolation test, so it never sparkles.
 
 ```bash
 .venv/bin/python -m asciibg.cli xwing.jpg --loop 10 \
-  --zoom 1.5 --offset-x 0.9 --offset-y 1.0 \
+  --cols 240 --rows 60 --zoom 0.45 --offset-x -0.9 --offset-y 0.45 \
   --clip-low 70 --clip-high 99.5 --gamma 0.7 --value-boost 0.85 --saturation 1.4 \
-  --effect "twinkle:amplitude=0.42,density=0.55" \
-  --effect "glint:period=10,strength=0.28,width=0.2"
+  --effect "twinkle:amplitude=0.45,density=0.6"
 ```
+
+## Shrinking a subject: zoom below 1
+
+`--zoom` below 1 makes the window larger than the image, so the subject shrinks and
+the rest is padding. Two things have to be right or the result gives itself away:
+
+- **The padding must pass for more of the same background.** Copying only the stars
+  is not enough. A photographed night sky is not black but a dim haze, so stars on
+  true black read as a visible rectangle. Every padded cell instead takes a whole
+  random background cell, brightness and colour together, which reproduces the haze,
+  the star density and the colour spread at once.
+- **Percentiles must come from the real pixels only.** The padding is black, and
+  counting it drags the low percentile to zero, which silently disables `--clip-low`
+  exactly when zooming out has made it matter most.
+
+Both are tested: one case asserts the clip still bites when most of the frame is
+padding, another that the padded cells match the real sky's mean brightness.
 
 ## Keeping the subject out from behind your head
 

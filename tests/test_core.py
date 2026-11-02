@@ -10,7 +10,9 @@ from PIL import Image
 from asciibg.check import LoopCheck
 from asciibg.effects import Drift, Glint, Scan, Twinkle, parse_effect, parse_effects
 from asciibg.piece import Context, Meta, cells_from_field, resolve_chars
-from asciibg.quantize import cover_crop, field_from_image
+from asciibg.quantize import (
+    _padding_mask, cover_crop, dilate, extend_sky, field_from_image, frame_source,
+)
 from asciibg.ramps import ramp
 from asciibg.render import build_atlas, render_frame, sort_by_ink
 
@@ -102,6 +104,49 @@ class TestQuantize(unittest.TestCase):
         dimmed = field_from_image(self.path, COLS, ROWS, center_dim=0.8)
         mid = (slice(ROWS // 3, 2 * ROWS // 3), slice(COLS // 3, 2 * COLS // 3))
         self.assertLess(dimmed.level[mid].mean(), plain.level[mid].mean())
+
+
+class TestZoomOut(unittest.TestCase):
+    """Zooming below 1 pads around the image, and the padding has to pass for sky."""
+
+    def setUp(self):
+        import tempfile
+
+        self.tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        self.tmp.close()
+        self.path = make_image(self.tmp.name)
+        self.z, self.off = 0.5, (-0.9, 0.0)
+        img = Image.open(self.path)
+        _, self.content = frame_source(img, 16 / 9, zoom=self.z, offset=self.off)
+        self.padding = _padding_mask(self.content, COLS, ROWS)
+
+    def test_zoom_out_creates_padding(self):
+        self.assertGreater(self.padding.mean(), 0.5)
+
+    def test_negative_offset_puts_the_subject_right(self):
+        x0, _, x1, _ = self.content
+        self.assertGreater((x0 + x1) / 2, 0.5)
+
+    def test_percentiles_ignore_the_padding(self):
+        """Counting black padding drags the low percentile to zero, disabling the clip."""
+        field = field_from_image(self.path, COLS, ROWS, zoom=self.z, offset=self.off,
+                                 clip=(70.0, 99.5), sky_fill=False)
+        real = ~self.padding
+        self.assertLess((field.level[real] > 0.01).mean(), 0.5)
+
+    def test_padding_matches_the_real_sky(self):
+        field = field_from_image(self.path, COLS, ROWS, zoom=self.z, offset=self.off,
+                                 clip=(70.0, 99.5))
+        sky = (~self.padding) & ~dilate(field.level > 0.4, 2)
+        self.assertGreater(sky.sum(), 10)
+        self.assertAlmostEqual(
+            float(field.level[sky].mean()), float(field.level[self.padding].mean()), delta=0.05
+        )
+
+    def test_sky_fill_can_be_turned_off(self):
+        bare = field_from_image(self.path, COLS, ROWS, zoom=self.z, offset=self.off,
+                                sky_fill=False)
+        self.assertEqual(float(bare.level[self.padding].max()), 0.0)
 
 
 class TestTwinkle(unittest.TestCase):

@@ -43,7 +43,11 @@ def build_parser() -> argparse.ArgumentParser:
     grid.add_argument("--height", type=int, default=1080)
     grid.add_argument("--cols", type=int, default=160)
     grid.add_argument("--rows", type=int, default=45)
-    grid.add_argument("--zoom", type=float, default=1.0, help="crop tighter than the full image")
+    grid.add_argument("--zoom", type=float, default=1.0,
+                      help="above 1 crops tighter; below 1 shrinks the subject and pads "
+                           "around it, with the padding filled from the image's own sky")
+    grid.add_argument("--no-sky-fill", dest="sky_fill", action="store_false",
+                      help="leave padding black instead of extending the background into it")
     grid.add_argument("--offset-x", type=float, default=0.0, metavar="N",
                       help="-1..1, pan the crop so the subject sits off-centre")
     grid.add_argument("--offset-y", type=float, default=0.0, metavar="N")
@@ -119,7 +123,8 @@ def main(argv: Sequence[str] = None) -> int:
         aspect=args.width / args.height, zoom=args.zoom,
         offset=(args.offset_x, args.offset_y), clip=(args.clip_low, args.clip_high),
         gamma=args.gamma, saturation=args.saturation, gain=args.gain,
-        value_boost=args.value_boost, center_dim=args.center_dim,
+        value_boost=args.value_boost, sky_fill=args.sky_fill,
+        center_dim=args.center_dim,
     )
 
     meta = Meta(name=name, cols=args.cols, rows=args.rows, fps=args.fps,

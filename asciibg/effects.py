@@ -15,6 +15,7 @@ from typing import Dict, List
 import numpy as np
 
 from .piece import Cells, Context
+from .quantize import isolated_points
 
 
 class Effect:
@@ -160,16 +161,7 @@ class Twinkle(Effect):
     def _stars(self, ctx: Context, level: np.ndarray) -> tuple:
         key = id(ctx.meta)
         if key not in self._plan:
-            rows, cols = level.shape
-            pad = np.pad(level, 1, mode="edge")
-            local = sum(
-                pad[y : y + rows, x : x + cols] for y in range(3) for x in range(3)
-            ) / 9.0
-            candidate = (
-                (level >= self.floor)
-                & (level <= self.ceiling)
-                & ((level - local) >= self.isolation)
-            )
+            candidate = isolated_points(level, self.floor, self.ceiling, self.isolation)
             rng = np.random.default_rng(99173)
             active = candidate & (rng.random(level.shape) < self.density)
             lo, hi = int(self.min_cycles), max(int(self.min_cycles), int(self.max_cycles))
