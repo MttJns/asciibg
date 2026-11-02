@@ -24,6 +24,12 @@ class Meta:
     loop: float
     charset: str
     note: str = ""
+    ramp_size: int = 0  # leading characters forming the brightness ramp; 0 means all
+
+    @property
+    def ramp_len(self) -> int:
+        """How many leading characters the ramp spans. Any extras sit after it."""
+        return self.ramp_size or len(self.charset)
 
     @property
     def frame_count(self) -> int:
@@ -80,9 +86,14 @@ def cells_from_field(field: Field) -> Cells:
     )
 
 
-def resolve_chars(cells: Cells, charset_size: int) -> np.ndarray:
-    """Pick a character index per cell: an override if set, else the ramp position."""
+def resolve_chars(cells: Cells, ramp_size: int, charset_size: int = 0) -> np.ndarray:
+    """Pick a character index per cell: an override if set, else the ramp position.
+
+    Brightness quantises into the first `ramp_size` characters only. An override may
+    name any character in the atlas, including glyphs a scene added beyond the ramp.
+    """
+    limit = charset_size or ramp_size
     quantised = np.clip(
-        np.rint(np.clip(cells.level, 0.0, 1.0) * (charset_size - 1)), 0, charset_size - 1
+        np.rint(np.clip(cells.level, 0.0, 1.0) * (ramp_size - 1)), 0, ramp_size - 1
     ).astype(np.int16)
-    return np.where(cells.char >= 0, np.clip(cells.char, 0, charset_size - 1), quantised)
+    return np.where(cells.char >= 0, np.clip(cells.char, 0, limit - 1), quantised)

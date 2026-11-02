@@ -108,7 +108,7 @@ class Scan(Effect):
         _brighten(cells, boost, self.tint)
 
         if self.scramble > 0.0:
-            charset_size = len(ctx.meta.charset)
+            charset_size = ctx.meta.ramp_len
             rng = np.random.default_rng(1013904223 + ctx.frame)
             hit = (falloff > 0.0) & (rng.random((rows, cols)) < self.scramble * falloff)
             if hit.any():

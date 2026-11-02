@@ -111,15 +111,17 @@ def render_frame(
     return out
 
 
-def sort_by_ink(atlas: Atlas) -> Atlas:
+def sort_by_ink(atlas: Atlas, limit: int = 0) -> Atlas:
     """Reorder a charset by measured ink coverage, lightest first.
 
     Conventional ramps are not monotonic in every font: in Menlo, `-` carries less
     ink than `:` and `%` less than `#`. Sorting makes brightness actually increase
-    along the ramp.
+    along the ramp. `limit` sorts only that many leading characters, leaving glyphs
+    a scene added after the ramp where they are.
     """
+    n = limit or atlas.size
     ink = atlas.masks.reshape(atlas.size, -1).mean(axis=1)
-    order = np.argsort(ink, kind="stable")
+    order = np.concatenate([np.argsort(ink[:n], kind="stable"), np.arange(n, atlas.size)])
     return Atlas(
         charset="".join(atlas.charset[i] for i in order),
         masks=atlas.masks[order],

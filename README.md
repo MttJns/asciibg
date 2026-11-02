@@ -31,6 +31,48 @@ Writes `out/photo.mp4` (1920x1080, H.264, yuv420p), `out/photo.gif`,
   --effect "drift:amplitude=0.08"
 ```
 
+## Scenes: backgrounds without an image
+
+Scenes are computed per frame rather than quantised from a picture, the way
+ascii.rest's own scenes are. Pick one directly, or describe what you want:
+
+```bash
+.venv/bin/python -m asciibg.cli --scene matrix:density=0.7,palette=amber -o out
+.venv/bin/python -m asciibg.cli --prompt "slow heavy snow on a cold blue night" -o out
+.venv/bin/python -m asciibg.cli --list-scenes
+```
+
+| scene | what it draws |
+|---|---|
+| `starfield` | layers of stars drifting past, nearer ones faster |
+| `rain` | streaks falling at a slant (also snow, ash) |
+| `waves` | interfering ripples, like light on water |
+| `nebula` | slow clouds of looping noise |
+| `grid` | a perspective floor running away to a horizon |
+| `matrix` | columns of characters falling, brightest at the head |
+
+Palettes: `ice`, `amber`, `green`, `ember`, `violet`, `mono`.
+
+`--prompt` selects and tunes a scene; it does not generate one. A fixed catalogue
+that is known to loop and known to read as a background is worth more than free-form
+generation that may do neither. Colour words set the palette, pace words
+(`fast`/`slow`) and quantity words (`heavy`/`sparse`) turn the knobs, and a prompt
+matching nothing falls back to `nebula` and says so.
+
+### Two things scenes needed from the renderer
+
+**A ramp that suits the field.** A smooth, continuous scene drawn with the shade
+ramp reads as horizontal stripes, because `-`, `=` and `:` are all horizontal
+strokes. Blocks and dots have no direction, so `nebula` and `waves` default to the
+`block` ramp. This was the single biggest difference in how they look; `--ramp`
+still overrides it.
+
+**Glyphs beyond the ramp.** `rain` wants `|` and `matrix` wants letters, none of
+which belong in a brightness ramp. The atlas carries them *after* the ramp, and
+`Meta.ramp_size` records where the ramp ends: brightness quantises into the leading
+characters only, sorting by ink touches only those, and a character override may
+name anything in the atlas.
+
 ## How it works
 
 1. **Quantise once.** Cover-crop to 16:9, box-downsample to `cols x rows`, take each
@@ -133,8 +175,20 @@ exits non-zero if the wrap breaks.
 - Zoom's "mirror my video" flips your self-view, so lettering reads backwards to you
   but correctly to everyone else. Prefer art without text.
 
+## Looping, for scenes
+
+The same rule as the effects, and it is what the catalogue is built around: anything
+that moves advances a whole number of wraps per loop, and anything random comes from
+a table indexed by frame number. `loop_noise` is built from sines whose time
+frequencies are whole numbers for the same reason - true value noise would need a
+tileable lattice to manage it. Every scene in the catalogue is tested for this.
+
 ## Tests
 
 ```bash
 .venv/bin/python -m unittest discover -s tests
 ```
+
+47 tests. The scene suite runs the whole catalogue through the same checks: each one
+loops, stays in 0..1, lights something, and never names a character outside its
+atlas.

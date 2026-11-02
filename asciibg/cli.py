@@ -14,9 +14,11 @@ from .check import LoopCheck, contact_sheet
 from .effects import parse_effects
 from .encode import Mp4Writer, mp4_to_gif, probe, save_png
 from .piece import Context, Meta, cells_from_field, resolve_chars
-from .quantize import field_from_image
+from .prompt import scene_from_prompt
+from .quantize import _center_mask, field_from_image
 from .ramps import DEFAULT_RAMP, RAMPS, ramp
 from .render import build_atlas, render_frame, sort_by_ink
+from .scenes import SCENES, parse_scene
 
 SHEET_FRAMES = 9
 
@@ -34,7 +36,15 @@ def build_parser() -> argparse.ArgumentParser:
         prog="asciibg",
         description="Turn a base image into a looping ASCII background for Zoom.",
     )
-    p.add_argument("image", help="base image (jpg, png, ...)")
+    p.add_argument("image", nargs="?", help="base image (jpg, png, ...)")
+    source = p.add_argument_group("source (pick one)")
+    source.add_argument("--scene", metavar="SPEC",
+                        help="a procedural scene instead of an image, e.g. "
+                             "matrix:density=0.7,palette=amber")
+    source.add_argument("--prompt", metavar="TEXT",
+                        help="describe what you want and let it pick and tune a scene")
+    source.add_argument("--list-scenes", action="store_true",
+                        help="list the scenes and what each answers to, then exit")
     p.add_argument("-o", "--out", default="out", help="output directory (default: out)")
     p.add_argument("-n", "--name", help="basename for the outputs (default: the image's)")
 
@@ -57,7 +67,8 @@ def build_parser() -> argparse.ArgumentParser:
     timing.add_argument("--loop", type=float, default=12.0, help="loop length in seconds")
 
     look = p.add_argument_group("look")
-    look.add_argument("--ramp", default=DEFAULT_RAMP, choices=sorted(RAMPS))
+    look.add_argument("--ramp", default=None, choices=sorted(RAMPS),
+                      help=f"character ramp (default: {DEFAULT_RAMP}, or the scene's own)")
     look.add_argument("--no-sort-ramp", dest="sort_ramp", action="store_false",
                       help="keep the ramp's written order instead of sorting by ink coverage")
     look.add_argument("--clip-low", type=float, default=2.0, metavar="PCT",
@@ -103,39 +114,80 @@ def _check_grid(args: argparse.Namespace) -> Tuple[int, int]:
     return args.width // args.cols, args.height // args.rows
 
 
+def list_scenes() -> int:
+    """Print the catalogue and the words each scene answers to."""
+    for name in sorted(SCENES):
+        cls = SCENES[name]
+        print(f"{name:11s} {cls.__doc__.splitlines()[0]}")
+        print(f"{'':11s} words: {', '.join(cls.tags)}")
+    return 0
+
+
 def main(argv: Sequence[str] = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.list_scenes:
+        return list_scenes()
+
+    chosen = [n for n, v in (("image", args.image), ("--scene", args.scene),
+                             ("--prompt", args.prompt)) if v]
+    if len(chosen) != 1:
+        raise SystemExit(
+            "give exactly one source: an image, --scene, or --prompt "
+            f"(got {', '.join(chosen) or 'none'}).\n"
+            "Run with --list-scenes to see the scenes."
+        )
     cell_w, cell_h = _check_grid(args)
+
+    say = (lambda *a: None) if args.quiet else (lambda *a: print(*a, file=sys.stderr))
+
+    scene = None
+    if args.prompt:
+        scene, why = scene_from_prompt(args.prompt)
+        say(f"prompt -> {why}")
+    elif args.scene:
+        scene = parse_scene(args.scene)
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    name = args.name or Path(args.image).stem
+    default_name = Path(args.image).stem if args.image else type(scene).__name__.lower()
+    name = args.name or default_name
     mp4_path, gif_path = out_dir / f"{name}.mp4", out_dir / f"{name}.gif"
     png_path, sheet_path = out_dir / f"{name}.png", out_dir / f"{name}-sheet.png"
 
-    atlas = build_atlas(ramp(args.ramp), cell_w, cell_h, font=args.font,
+    ramp_name = args.ramp or getattr(scene, "ramp_name", None) or DEFAULT_RAMP
+    base_ramp = ramp(ramp_name)
+    extra = "".join(c for c in getattr(scene, "charset_extra", "") if c not in base_ramp)
+    atlas = build_atlas(base_ramp + extra, cell_w, cell_h, font=args.font,
                         font_index=args.font_index, font_size=args.font_size)
     if args.sort_ramp:
-        atlas = sort_by_ink(atlas)
-
-    field = field_from_image(
-        args.image, args.cols, args.rows,
-        aspect=args.width / args.height, zoom=args.zoom,
-        offset=(args.offset_x, args.offset_y), clip=(args.clip_low, args.clip_high),
-        gamma=args.gamma, saturation=args.saturation, gain=args.gain,
-        value_boost=args.value_boost, sky_fill=args.sky_fill,
-        center_dim=args.center_dim,
-    )
+        atlas = sort_by_ink(atlas, limit=len(base_ramp))
 
     meta = Meta(name=name, cols=args.cols, rows=args.rows, fps=args.fps,
-                loop=args.loop, charset=atlas.charset)
-    effects = parse_effects(args.effects or ["glint", "drift"])
+                loop=args.loop, charset=atlas.charset, ramp_size=len(base_ramp))
 
-    say = (lambda *a: None) if args.quiet else (lambda *a: print(*a, file=sys.stderr))
+    field = None
+    if scene is not None:
+        scene.setup(meta)
+        dim = args.center_dim * _center_mask(args.cols, args.rows) if args.center_dim else None
+    else:
+        field = field_from_image(
+            args.image, args.cols, args.rows,
+            aspect=args.width / args.height, zoom=args.zoom,
+            offset=(args.offset_x, args.offset_y), clip=(args.clip_low, args.clip_high),
+            gamma=args.gamma, saturation=args.saturation, gain=args.gain,
+            value_boost=args.value_boost, sky_fill=args.sky_fill,
+            center_dim=args.center_dim,
+        )
+        dim = None
+
+    effects = parse_effects(args.effects) if args.effects else (
+        [] if scene is not None else parse_effects(["glint", "drift"])
+    )
+
     total = meta.frame_count
     say(f"{name}: {args.cols}x{args.rows} cells, {cell_w}x{cell_h} px each, "
         f"{total} frames at {args.fps} fps ({args.loop:g}s loop)")
-    say(f"ramp {atlas.charset!r}")
+    say(f"ramp {ramp_name} {atlas.charset!r}")
 
     check = LoopCheck()
     sheet: List[np.ndarray] = []
@@ -144,11 +196,16 @@ def main(argv: Sequence[str] = None) -> int:
     started = time.time()
     with Mp4Writer(mp4_path, args.width, args.height, args.fps, crf=args.crf) as writer:
         for i in range(total):
-            cells = cells_from_field(field)
             ctx = Context(meta=meta, frame=i, field=field)
+            if scene is not None:
+                cells = scene.render(ctx)
+                if dim is not None:
+                    cells.level = (cells.level * (1.0 - dim)).astype(np.float32)
+            else:
+                cells = cells_from_field(field)
             for effect in effects:
                 effect.apply(cells, ctx)
-            frame = render_frame(resolve_chars(cells, atlas.size), cells.rgb, atlas, args.bg)
+            frame = render_frame(resolve_chars(cells, meta.ramp_len, atlas.size), cells.rgb, atlas, args.bg)
 
             writer.write(frame)
             check.add(frame)
