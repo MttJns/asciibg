@@ -67,13 +67,33 @@ large bright subject fails the isolation test, so it never sparkles.
 
 ```bash
 .venv/bin/python -m asciibg.cli xwing.jpg --loop 10 \
+  --zoom 1.5 --offset-x 0.9 --offset-y 1.0 \
   --clip-low 70 --clip-high 99.5 --gamma 0.7 --value-boost 0.85 --saturation 1.4 \
   --effect "twinkle:amplitude=0.42,density=0.55" \
   --effect "glint:period=10,strength=0.28,width=0.2"
 ```
 
-Use `--zoom` and `--offset-x/--offset-y` to pan the subject out of the centre, where
-a speaker's head sits.
+## Keeping the subject out from behind your head
+
+`--zoom` and `--offset-x/--offset-y` pan the subject away from the centre. A source
+already at 16:9 has no pan room at all, so every bit of it has to be bought by
+zooming in, and that crops the edges: judge the trade rather than guessing.
+
+Measure it instead of eyeballing it. Build a head-and-shoulders mask, then count how
+much of the subject falls inside it:
+
+```python
+x = (np.arange(COLS) + 0.5) / COLS
+y = (np.arange(ROWS) + 0.5) / ROWS
+head = (((x[None, :] - 0.5) / 0.19) ** 2 + ((y[:, None] - 0.72) / 0.52) ** 2) <= 1.0
+ship = field.level > 0.5
+hidden = ship[head].sum() / ship.sum()
+```
+
+For the X-wing above, centred put 50% of the ship behind the speaker's head. Sweeping
+zoom and offset found `--zoom 1.5 --offset-x 0.9 --offset-y 1.0`, which drops it to
+3.7% by lifting the ship into a banner across the top, at the cost of the nose
+running off the left edge.
 
 ## Geometry
 
