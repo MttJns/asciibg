@@ -43,6 +43,10 @@ def build_parser() -> argparse.ArgumentParser:
     grid.add_argument("--height", type=int, default=1080)
     grid.add_argument("--cols", type=int, default=160)
     grid.add_argument("--rows", type=int, default=45)
+    grid.add_argument("--zoom", type=float, default=1.0, help="crop tighter than the full image")
+    grid.add_argument("--offset-x", type=float, default=0.0, metavar="N",
+                      help="-1..1, pan the crop so the subject sits off-centre")
+    grid.add_argument("--offset-y", type=float, default=0.0, metavar="N")
 
     timing = p.add_argument_group("timing")
     timing.add_argument("--fps", type=int, default=30)
@@ -52,7 +56,13 @@ def build_parser() -> argparse.ArgumentParser:
     look.add_argument("--ramp", default=DEFAULT_RAMP, choices=sorted(RAMPS))
     look.add_argument("--no-sort-ramp", dest="sort_ramp", action="store_false",
                       help="keep the ramp's written order instead of sorting by ink coverage")
+    look.add_argument("--clip-low", type=float, default=2.0, metavar="PCT",
+                      help="percentile mapped to the empty end of the ramp; raise it "
+                           "for a subject on a mostly dark background (default: 2)")
+    look.add_argument("--clip-high", type=float, default=98.0, metavar="PCT")
     look.add_argument("--gamma", type=float, default=1.0)
+    look.add_argument("--value-boost", type=float, default=0.0,
+                      help="0..1, lift each cell's colour towards full value, keeping hue")
     look.add_argument("--saturation", type=float, default=1.0)
     look.add_argument("--gain", type=float, default=1.0)
     look.add_argument("--center-dim", type=float, default=0.0,
@@ -106,8 +116,10 @@ def main(argv: Sequence[str] = None) -> int:
 
     field = field_from_image(
         args.image, args.cols, args.rows,
-        aspect=args.width / args.height, gamma=args.gamma,
-        saturation=args.saturation, gain=args.gain, center_dim=args.center_dim,
+        aspect=args.width / args.height, zoom=args.zoom,
+        offset=(args.offset_x, args.offset_y), clip=(args.clip_low, args.clip_high),
+        gamma=args.gamma, saturation=args.saturation, gain=args.gain,
+        value_boost=args.value_boost, center_dim=args.center_dim,
     )
 
     meta = Meta(name=name, cols=args.cols, rows=args.rows, fps=args.fps,
@@ -128,7 +140,7 @@ def main(argv: Sequence[str] = None) -> int:
     with Mp4Writer(mp4_path, args.width, args.height, args.fps, crf=args.crf) as writer:
         for i in range(total):
             cells = cells_from_field(field)
-            ctx = Context(meta=meta, frame=i)
+            ctx = Context(meta=meta, frame=i, field=field)
             for effect in effects:
                 effect.apply(cells, ctx)
             frame = render_frame(resolve_chars(cells, atlas.size), cells.rgb, atlas, args.bg)

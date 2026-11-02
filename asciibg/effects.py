@@ -134,7 +134,62 @@ class Drift(Effect):
         cells.level = np.clip(cells.level + self.amplitude * wave, 0.0, 1.0).astype(np.float32)
 
 
-EFFECTS = {"glint": Glint, "scan": Scan, "drift": Drift}
+@dataclass
+class Twinkle(Effect):
+    """Sparkle the isolated bright points of a dark field, such as a starfield.
+
+    Picks its cells from the original quantised field, not from the running frame:
+    dim, locally isolated cells, which is what a star becomes once a 12x24 px patch
+    of sky is averaged into one cell. The ship or subject, being a large bright
+    mass, fails the isolation test and is left alone.
+    """
+
+    density: float = 0.55
+    amplitude: float = 0.45
+    sharpness: float = 8.0
+    min_cycles: float = 2.0
+    max_cycles: float = 7.0
+    floor: float = 0.02
+    ceiling: float = 0.45
+    isolation: float = 0.015
+    tint: float = 0.6
+
+    def __post_init__(self) -> None:
+        self._plan: Dict[int, tuple] = {}
+
+    def _stars(self, ctx: Context, level: np.ndarray) -> tuple:
+        key = id(ctx.meta)
+        if key not in self._plan:
+            rows, cols = level.shape
+            pad = np.pad(level, 1, mode="edge")
+            local = sum(
+                pad[y : y + rows, x : x + cols] for y in range(3) for x in range(3)
+            ) / 9.0
+            candidate = (
+                (level >= self.floor)
+                & (level <= self.ceiling)
+                & ((level - local) >= self.isolation)
+            )
+            rng = np.random.default_rng(99173)
+            active = candidate & (rng.random(level.shape) < self.density)
+            lo, hi = int(self.min_cycles), max(int(self.min_cycles), int(self.max_cycles))
+            cycles = rng.integers(lo, hi + 1, size=level.shape).astype(np.float32)
+            offsets = rng.random(level.shape).astype(np.float32)
+            self._plan[key] = (active, cycles, offsets)
+        return self._plan[key]
+
+    def apply(self, cells: Cells, ctx: Context) -> None:
+        source = ctx.field.level if ctx.field is not None else cells.level
+        active, cycles, offsets = self._stars(ctx, source)
+        if not active.any():
+            return
+        wave = np.sin(2.0 * math.pi * (cycles * ctx.phase + offsets))
+        pulse = np.maximum(wave, 0.0) ** self.sharpness
+        boost = (self.amplitude * pulse * active).astype(np.float32)
+        _brighten(cells, boost, self.tint)
+
+
+EFFECTS = {"glint": Glint, "scan": Scan, "drift": Drift, "twinkle": Twinkle}
 
 
 def parse_effect(spec: str) -> Effect:

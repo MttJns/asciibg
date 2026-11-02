@@ -41,12 +41,39 @@ Writes `out/photo.mp4` (1920x1080, H.264, yuv420p), `out/photo.gif`,
    `-` carries less ink than `:`, and `%` less than `#`. `--no-sort-ramp` keeps the
    written order.
 3. **Layer motion.** `glint` sweeps a bright band across, `scan` runs a line down
-   that scrambles the characters it passes, `drift` is a slow brightness wave.
-   The grid itself never changes.
+   that scrambles the characters it passes, `drift` is a slow brightness wave, and
+   `twinkle` sparkles isolated dim points such as a starfield. The grid itself
+   never changes.
 4. **Render.** Every character is rasterised once at the exact cell size into an
    alpha mask, then blitted tinted by each cell's colour. Nothing is ever resampled,
    which is what keeps the glyph edges crisp.
 5. **Encode.** Raw frames pipe straight into ffmpeg; the GIF is made from the video.
+
+## Subjects on a dark background
+
+A picture that is mostly background, such as a ship on a night sky, puts its subject
+at the bottom of the ramp, because the sky dominates the histogram. Two controls fix
+it:
+
+- `--clip-low 70` maps everything below the 70th percentile to empty, so the sky goes
+  black and the subject spreads across the whole ramp.
+- `--value-boost 0.85` lifts each cell's colour towards full value, keeping its hue.
+  Without it a dim cell gets both a sparse character and a dark colour, and reads as
+  doubly dark.
+
+`twinkle` picks its cells from the quantised field: dim, locally isolated ones, which
+is what a star becomes once a 12x24 px patch of sky averages into a single cell. A
+large bright subject fails the isolation test, so it never sparkles.
+
+```bash
+.venv/bin/python -m asciibg.cli xwing.jpg --loop 10 \
+  --clip-low 70 --clip-high 99.5 --gamma 0.7 --value-boost 0.85 --saturation 1.4 \
+  --effect "twinkle:amplitude=0.42,density=0.55" \
+  --effect "glint:period=10,strength=0.28,width=0.2"
+```
+
+Use `--zoom` and `--offset-x/--offset-y` to pan the subject out of the centre, where
+a speaker's head sits.
 
 ## Geometry
 

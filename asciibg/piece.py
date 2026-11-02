@@ -58,6 +58,7 @@ class Context:
 
     meta: Meta
     frame: int
+    field: "Field" = None  # type: ignore[assignment]
 
     @property
     def t(self) -> float:

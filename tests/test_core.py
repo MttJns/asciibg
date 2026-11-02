@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 
 from asciibg.check import LoopCheck
-from asciibg.effects import Drift, Glint, Scan, parse_effect, parse_effects
+from asciibg.effects import Drift, Glint, Scan, Twinkle, parse_effect, parse_effects
 from asciibg.piece import Context, Meta, cells_from_field, resolve_chars
 from asciibg.quantize import cover_crop, field_from_image
 from asciibg.ramps import ramp
@@ -72,11 +72,70 @@ class TestQuantize(unittest.TestCase):
         for img in (wide, tall):
             self.assertAlmostEqual(img.size[0] / img.size[1], 16 / 9, places=1)
 
+    def test_value_boost_lifts_colour_without_changing_hue(self):
+        plain = field_from_image(self.path, COLS, ROWS)
+        lifted = field_from_image(self.path, COLS, ROWS, value_boost=1.0)
+        self.assertGreater(lifted.rgb.max(axis=-1).mean(), plain.rgb.max(axis=-1).mean())
+        bright = plain.rgb.max(axis=-1) > 0.1
+        ratio_plain = plain.rgb[bright] / plain.rgb[bright].max(axis=-1, keepdims=True)
+        ratio_lifted = lifted.rgb[bright] / lifted.rgb[bright].max(axis=-1, keepdims=True)
+        np.testing.assert_allclose(ratio_plain, ratio_lifted, atol=1e-4)
+
+    def test_raising_the_low_clip_darkens_the_background(self):
+        plain = field_from_image(self.path, COLS, ROWS, clip=(2.0, 98.0))
+        lifted = field_from_image(self.path, COLS, ROWS, clip=(70.0, 99.5))
+        self.assertGreater((lifted.level == 0.0).sum(), (plain.level == 0.0).sum())
+
+    def test_zoom_and_offset_move_the_crop(self):
+        img = Image.new("RGB", (400, 400))
+        full = cover_crop(img, 16 / 9)
+        zoomed = cover_crop(img, 16 / 9, zoom=2.0)
+        self.assertLess(zoomed.size[0], full.size[0])
+        self.assertAlmostEqual(zoomed.size[0] / zoomed.size[1], 16 / 9, places=1)
+        left = cover_crop(img, 16 / 9, zoom=2.0, offset=(-1.0, 0.0))
+        right = cover_crop(img, 16 / 9, zoom=2.0, offset=(1.0, 0.0))
+        self.assertNotEqual(left.size, (0, 0))
+        self.assertEqual(left.size, right.size)
+
     def test_center_dim_darkens_the_middle(self):
         plain = field_from_image(self.path, COLS, ROWS)
         dimmed = field_from_image(self.path, COLS, ROWS, center_dim=0.8)
         mid = (slice(ROWS // 3, 2 * ROWS // 3), slice(COLS // 3, 2 * COLS // 3))
         self.assertLess(dimmed.level[mid].mean(), plain.level[mid].mean())
+
+
+class TestTwinkle(unittest.TestCase):
+    """Twinkle must find the stars and leave a large bright subject alone."""
+
+    def setUp(self):
+        rows, cols = 24, 48
+        self.level = np.zeros((rows, cols), dtype=np.float32)
+        self.level[8:16, 4:20] = 0.9  # a bright subject, large and solid
+        rng = np.random.default_rng(5)
+        for y, x in zip(rng.integers(0, rows, 60), rng.integers(28, cols, 60)):
+            self.level[y, x] = 0.2  # isolated points, as stars quantise to
+        self.field = __import__("asciibg.piece", fromlist=["Field"]).Field(
+            level=self.level, rgb=np.ones((rows, cols, 3), dtype=np.float32)
+        )
+        self.meta = Meta("t", cols, rows, 10, 1.0, " .-:+*=%#@")
+
+    def _active(self):
+        tw = Twinkle()
+        active, _, _ = tw._stars(Context(meta=self.meta, frame=0, field=self.field), self.level)
+        return active
+
+    def test_picks_isolated_points(self):
+        self.assertGreater(self._active().sum(), 0)
+
+    def test_leaves_a_solid_bright_subject_alone(self):
+        self.assertEqual(self._active()[8:16, 4:20].sum(), 0)
+
+    def test_brightens_only_its_own_cells(self):
+        active = self._active()
+        cells = cells_from_field(self.field)
+        Twinkle().apply(cells, Context(meta=self.meta, frame=3, field=self.field))
+        lifted = cells.level > self.level
+        self.assertTrue(np.all(~lifted | active))
 
 
 class TestEffectSpecs(unittest.TestCase):
@@ -107,7 +166,7 @@ class TestLoopSeamlessness(unittest.TestCase):
         check = LoopCheck()
         for i in range(self.meta.frame_count):
             cells = cells_from_field(self.field)
-            ctx = Context(meta=self.meta, frame=i)
+            ctx = Context(meta=self.meta, frame=i, field=self.field)
             for effect in effects:
                 effect.apply(cells, ctx)
             check.add(render_frame(resolve_chars(cells, self.atlas.size), cells.rgb, self.atlas))
@@ -124,8 +183,12 @@ class TestLoopSeamlessness(unittest.TestCase):
         check = self._run([Drift()])
         self.assertTrue(check.ok(), check.report())
 
+    def test_twinkle_loops(self):
+        check = self._run([Twinkle(amplitude=0.5)])
+        self.assertTrue(check.ok(), check.report())
+
     def test_all_effects_together_loop(self):
-        check = self._run([Glint(period=1.0), Scan(period=2.0), Drift()])
+        check = self._run([Glint(period=1.0), Scan(period=2.0), Drift(), Twinkle()])
         self.assertTrue(check.ok(), check.report())
 
     def test_static_field_has_no_wrap_break(self):
