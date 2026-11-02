@@ -1,0 +1,13 @@
+[project]
+name = "asciibg"
+version = "0.1.0"
+description = "Animated ASCII backgrounds from a base image, in the style of ascii.rest"
+requires-python = ">=3.9"
+dependencies = ["pillow>=10", "numpy>=1.24"]
+
+[project.scripts]
+asciibg = "asciibg.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
