@@ -8,8 +8,8 @@ import numpy as np
 from PIL import Image
 
 from asciibg.check import LoopCheck
-from asciibg.effects import Drift, Glint, Scan, Twinkle, parse_effect, parse_effects
-from asciibg.piece import Context, Meta, cells_from_field, resolve_chars
+from asciibg.effects import Drift, Glint, Scan, Sparkle, Twinkle, parse_effect, parse_effects
+from asciibg.piece import Context, Field, Meta, cells_from_field, resolve_chars
 from asciibg.quantize import (
     _padding_mask, cover_crop, dilate, extend_sky, field_from_image, frame_source,
 )
@@ -183,6 +183,38 @@ class TestTwinkle(unittest.TestCase):
         self.assertTrue(np.all(~lifted | active))
 
 
+class TestSparkle(unittest.TestCase):
+    """Sparkle works on cells that are already bright, so it must scale, not add."""
+
+    def setUp(self):
+        rows, cols = 24, 48
+        self.level = np.zeros((rows, cols), dtype=np.float32)
+        rng = np.random.default_rng(11)
+        for y, x in zip(rng.integers(0, rows, 90), rng.integers(0, cols, 90)):
+            self.level[y, x] = 1.0  # crests, already at the top of the ramp
+        self.field = Field(level=self.level, rgb=np.ones((rows, cols, 3), dtype=np.float32))
+        self.meta = Meta("t", cols, rows, 10, 1.0, " .-:+*=%#@")
+
+    def _cells(self, frame, **kw):
+        cells = cells_from_field(self.field)
+        Sparkle(**kw).apply(cells, Context(meta=self.meta, frame=frame, field=self.field))
+        return cells
+
+    def test_dims_cells_a_lift_could_not_reach(self):
+        dimmest = min(float(self._cells(i).level.min()) for i in range(self.meta.frame_count))
+        self.assertLess(dimmest, 1.0)
+        self.assertTrue(any(
+            float((self._cells(i).level < self.level).sum()) > 0
+            for i in range(self.meta.frame_count)
+        ))
+
+    def test_the_band_keeps_it_off_the_rest_of_the_frame(self):
+        for i in range(self.meta.frame_count):
+            cells = self._cells(i, top=0.5, bottom=0.75)
+            np.testing.assert_array_equal(cells.level[:12], self.level[:12])
+            np.testing.assert_array_equal(cells.level[18:], self.level[18:])
+
+
 class TestEffectSpecs(unittest.TestCase):
     def test_parses_name_and_arguments(self):
         effect = parse_effect("glint:period=4,strength=0.6")
@@ -232,8 +264,12 @@ class TestLoopSeamlessness(unittest.TestCase):
         check = self._run([Twinkle(amplitude=0.5)])
         self.assertTrue(check.ok(), check.report())
 
+    def test_sparkle_loops(self):
+        check = self._run([Sparkle(floor=0.0)])
+        self.assertTrue(check.ok(), check.report())
+
     def test_all_effects_together_loop(self):
-        check = self._run([Glint(period=1.0), Scan(period=2.0), Drift(), Twinkle()])
+        check = self._run([Glint(period=1.0), Scan(period=2.0), Drift(), Twinkle(), Sparkle()])
         self.assertTrue(check.ok(), check.report())
 
     def test_static_field_has_no_wrap_break(self):

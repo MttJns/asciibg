@@ -84,8 +84,8 @@ name anything in the atlas.
    written order.
 3. **Layer motion.** `glint` sweeps a bright band across, `scan` runs a line down
    that scrambles the characters it passes, `drift` is a slow brightness wave, and
-   `twinkle` sparkles isolated dim points such as a starfield. The grid itself
-   never changes.
+   `twinkle` sparkles isolated dim points such as a starfield, and `sparkle` winks
+   the bright ones, such as sun on water. The grid itself never changes.
 4. **Render.** Every character is rasterised once at the exact cell size into an
    alpha mask, then blitted tinted by each cell's colour. Nothing is ever resampled,
    which is what keeps the glyph edges crisp.
@@ -113,6 +113,27 @@ large bright subject fails the isolation test, so it never sparkles.
   --clip-low 70 --clip-high 99.5 --gamma 0.7 --value-boost 0.85 --saturation 1.4 \
   --effect "twinkle:amplitude=0.45,density=0.6"
 ```
+
+## Bright highlights: `sparkle` rather than `twinkle`
+
+The two look alike and work opposite ways. `twinkle` *adds* brightness to cells that
+are dim, which is what a star is. A highlight on water is the other case: the cell is
+already at the top of the ramp, so adding to it does nothing at all. `sparkle`
+*scales* instead, dropping a speck to `dim` and bringing it back, which reads as a
+catch of light rather than a glow.
+
+`top` and `bottom` hold it to a band of the frame, in fractions of the height, so the
+sky above and the subject below stay still:
+
+```bash
+.venv/bin/python -m asciibg.cli seafront.png --loop 10 \
+  --clip-low 68 --clip-high 99 --value-boost 0.7 \
+  --effect "sparkle:top=0.22,bottom=0.72,density=0.75,dim=0.3,isolation=0.08"
+```
+
+Raise `isolation` to keep it off a solid bright mass that happens to sit in the band,
+such as a hull on the horizon: at 0.01 the ship's edge cells flicker, at 0.08 they
+sit still while the water keeps three quarters of its sparkle.
 
 ## Shrinking a subject: zoom below 1
 

@@ -181,7 +181,69 @@ class Twinkle(Effect):
         _brighten(cells, boost, self.tint)
 
 
-EFFECTS = {"glint": Glint, "scan": Scan, "drift": Drift, "twinkle": Twinkle}
+@dataclass
+class Sparkle(Effect):
+    """Wink the bright specks of a dark surface on and off, as sun on water does.
+
+    Twinkle lifts dim points that are already there; a highlight on water is the
+    opposite case, a cell already at the top of the ramp, where adding brightness
+    does nothing. This one scales instead, so a speck drops to `dim` and comes back,
+    which reads as a catch of light rather than a glow. `top` and `bottom` keep it
+    to a band of the frame, in fractions of the height, so the sky and the subject
+    below stay still.
+    """
+
+    density: float = 0.7
+    dim: float = 0.15
+    gain: float = 0.0
+    sharpness: float = 1.6
+    min_cycles: float = 3.0
+    max_cycles: float = 9.0
+    floor: float = 0.25
+    ceiling: float = 1.0
+    isolation: float = 0.02
+    tint: float = 0.35
+    top: float = 0.0
+    bottom: float = 1.0
+
+    def __post_init__(self) -> None:
+        self._plan: Dict[int, tuple] = {}
+
+    def _band(self, rows: int, cols: int) -> np.ndarray:
+        y = (np.arange(rows, dtype=np.float32) + 0.5) / rows
+        return ((y >= self.top) & (y < self.bottom))[:, None] & np.ones((1, cols), bool)
+
+    def _specks(self, ctx: Context, level: np.ndarray) -> tuple:
+        key = id(ctx.meta)
+        if key not in self._plan:
+            rows, cols = level.shape
+            candidate = isolated_points(level, self.floor, self.ceiling, self.isolation)
+            candidate &= self._band(rows, cols)
+            rng = np.random.default_rng(5150021)
+            active = candidate & (rng.random(level.shape) < self.density)
+            lo, hi = int(self.min_cycles), max(int(self.min_cycles), int(self.max_cycles))
+            cycles = rng.integers(lo, hi + 1, size=level.shape).astype(np.float32)
+            offsets = rng.random(level.shape).astype(np.float32)
+            self._plan[key] = (active, cycles, offsets)
+        return self._plan[key]
+
+    def apply(self, cells: Cells, ctx: Context) -> None:
+        source = ctx.field.level if ctx.field is not None else cells.level
+        active, cycles, offsets = self._specks(ctx, source)
+        if not active.any():
+            return
+        wave = 0.5 + 0.5 * np.sin(2.0 * math.pi * (cycles * ctx.phase + offsets))
+        pulse = wave ** self.sharpness
+        scale = np.where(active, self.dim + (1.0 - self.dim) * pulse, 1.0).astype(np.float32)
+        cells.level = np.clip(cells.level * scale, 0.0, 1.0)
+        if self.gain > 0.0:
+            _brighten(cells, (self.gain * pulse * active).astype(np.float32), self.tint)
+        elif self.tint > 0.0:
+            t = np.clip(self.tint * pulse * active, 0.0, 1.0)[..., None].astype(np.float32)
+            cells.rgb = np.clip(cells.rgb + (1.0 - cells.rgb) * t, 0.0, 1.0)
+
+
+EFFECTS = {"glint": Glint, "scan": Scan, "drift": Drift, "twinkle": Twinkle, "sparkle": Sparkle}
 
 
 def parse_effect(spec: str) -> Effect:
