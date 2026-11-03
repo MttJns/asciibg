@@ -9,8 +9,7 @@ from PIL import Image
 
 from asciibg.check import LoopCheck
 from asciibg.effects import (
-    GULL_POSES, Drift, Flag, Glint, Gull, Scan, Sparkle, Twinkle, charset_extra,
-    parse_effect, parse_effects,
+    Drift, Flag, Glint, Scan, Sparkle, Twinkle, parse_effect, parse_effects,
 )
 from asciibg.piece import Context, Field, Meta, cells_from_field, resolve_chars
 from asciibg.quantize import (
@@ -223,61 +222,6 @@ class TestSparkle(unittest.TestCase):
             cells = self._cells(i, left=0.25, right=0.5)
             np.testing.assert_array_equal(cells.level[:, :12], self.level[:, :12])
             np.testing.assert_array_equal(cells.level[:, 24:], self.level[:, 24:])
-
-
-class TestGull(unittest.TestCase):
-    """A sprite drawn as characters, so it must declare the glyphs it needs."""
-
-    def setUp(self):
-        self.charset = ramp("shade") + charset_extra([Gull()])
-        self.meta = Meta("t", 40, 20, 10, 1.0, self.charset, ramp_size=len(ramp("shade")))
-        self.field = Field(
-            level=np.zeros((20, 40), dtype=np.float32),
-            rgb=np.zeros((20, 40, 3), dtype=np.float32),
-        )
-
-    def _drawn(self, frame, **kw):
-        cells = cells_from_field(self.field)
-        Gull(**kw).apply(cells, Context(meta=self.meta, frame=frame, field=self.field))
-        return cells
-
-    def test_every_pose_is_the_same_size(self):
-        shapes = {(len(p), len(p[0])) for p in GULL_POSES}
-        self.assertEqual(len(shapes), 1)
-        self.assertEqual({len(line) for pose in GULL_POSES for line in pose}, {len(GULL_POSES[0][0])})
-
-    def test_declares_every_glyph_it_draws(self):
-        drawn = {ch for pose in GULL_POSES for line in pose for ch in line} - {" "}
-        self.assertTrue(drawn <= set(charset_extra([Gull()])), drawn)
-
-    def test_draws_in_white_and_only_its_own_cells(self):
-        cells = self._drawn(0)
-        lit = cells.level > 0
-        self.assertGreater(int(lit.sum()), 0)
-        self.assertTrue(np.all(cells.rgb[lit] == 1.0))
-        self.assertTrue(np.all(cells.level[~lit] == 0.0))
-
-    def test_the_wings_actually_move(self):
-        seen = {self._drawn(i, flaps=4.0).char.tobytes() for i in range(self.meta.frame_count)}
-        self.assertGreaterEqual(len(seen), len(GULL_POSES))
-
-    def test_loops(self):
-        base = ramp("shade")
-        atlas = sort_by_ink(build_atlas(self.charset, 6, 12), limit=len(base))
-        meta = Meta("t", 40, 20, 10, 1.0, atlas.charset, ramp_size=len(base))
-        gull = Gull(flaps=4.0)
-        check = LoopCheck()
-        for i in range(meta.frame_count):
-            cells = cells_from_field(self.field)
-            gull.apply(cells, Context(meta=meta, frame=i, field=self.field))
-            check.add(render_frame(resolve_chars(cells, len(base), atlas.size), cells.rgb, atlas))
-        self.assertGreater(check.step_delta, 0.0, "nothing was drawn")
-        self.assertTrue(check.ok(), check.report())
-
-    def test_stays_in_the_frame_at_the_edges(self):
-        for col, row in ((0.0, 0.0), (1.0, 1.0)):
-            cells = self._drawn(2, col=col, row=row)  # must clip, not raise or wrap
-            self.assertEqual(cells.level.shape, (20, 40))
 
 
 class TestFlag(unittest.TestCase):

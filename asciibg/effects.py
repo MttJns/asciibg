@@ -248,63 +248,6 @@ class Sparkle(Effect):
             cells.rgb = np.clip(cells.rgb + (1.0 - cells.rgb) * t, 0.0, 1.0)
 
 
-# Wings up, level, down, level: four poses, so a flap is smooth in both directions.
-# The body stays on the middle row throughout; only the wings sweep, or the bird
-# reads as hopping rather than flapping.
-# A stroke's slope is what picks the character. A wing running down and to the left
-# loses a column as it gains a row, which is what `/` does, and `\\` is its mirror.
-GULL_POSES = (
-    ("\\   /", " \\o/ ", "     "),
-    ("     ", "\\_o_/", "     "),
-    ("     ", " /o\\ ", "/   \\"),
-    ("     ", "\\_o_/", "     "),
-)
-
-
-@dataclass
-class Gull(Effect):
-    """A single white bird, flapping and drifting on the spot.
-
-    Drawn as characters rather than brightness, so it needs glyphs the ramp does not
-    carry; `charset_extra` is how it asks for them. `col` and `row` place its centre
-    in fractions of the grid, and the flap, the bob and the sway are all whole
-    numbers of cycles per loop, so it arrives back where it started.
-    """
-
-    charset_extra = "\\/_o"
-
-    col: float = 0.5
-    row: float = 0.25
-    flaps: float = 8.0
-    bob: float = 1.5
-    sway: float = 2.5
-    cycles: float = 1.0
-
-    def apply(self, cells: Cells, ctx: Context) -> None:
-        rows, cols = cells.level.shape
-        pose = GULL_POSES[int(max(1.0, round(self.flaps)) * ctx.phase * len(GULL_POSES))
-                          % len(GULL_POSES)]
-        k = max(1.0, round(self.cycles))
-        angle = 2.0 * math.pi * k * ctx.phase
-        x0 = self.col * cols + self.sway * math.sin(angle) - len(pose[0]) / 2.0
-        y0 = self.row * rows + self.bob * math.sin(2.0 * angle) - len(pose) / 2.0
-
-        for dy, line in enumerate(pose):
-            y = int(round(y0)) + dy
-            if not 0 <= y < rows:
-                continue
-            for dx, ch in enumerate(line):
-                x = int(round(x0)) + dx
-                if ch == " " or not 0 <= x < cols:
-                    continue
-                index = ctx.meta.charset.find(ch)
-                if index < 0:
-                    continue
-                cells.char[y, x] = index
-                cells.level[y, x] = 1.0
-                cells.rgb[y, x] = 1.0
-
-
 @dataclass
 class Flag(Effect):
     """Ripple a flag on its pole, as a breeze does.
@@ -359,7 +302,7 @@ class Flag(Effect):
             cells.rgb[y0:y1, x] = source.rgb[src, x]
 
 
-EFFECTS = {"glint": Glint, "scan": Scan, "drift": Drift, "twinkle": Twinkle, "sparkle": Sparkle, "gull": Gull, "flag": Flag}
+EFFECTS = {"glint": Glint, "scan": Scan, "drift": Drift, "twinkle": Twinkle, "sparkle": Sparkle, "flag": Flag}
 
 
 def parse_effect(spec: str) -> Effect:
@@ -378,13 +321,3 @@ def parse_effect(spec: str) -> Effect:
 def parse_effects(specs: List[str]) -> List[Effect]:
     """Build a list of effects from CLI specs, applied in order."""
     return [parse_effect(s) for s in specs]
-
-
-def charset_extra(effects: List[Effect]) -> str:
-    """Characters the effects draw with that a brightness ramp would not carry."""
-    seen = ""
-    for effect in effects:
-        for ch in getattr(effect, "charset_extra", ""):
-            if ch not in seen:
-                seen += ch
-    return seen

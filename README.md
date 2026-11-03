@@ -85,8 +85,8 @@ name anything in the atlas.
 3. **Layer motion.** `glint` sweeps a bright band across, `scan` runs a line down
    that scrambles the characters it passes, `drift` is a slow brightness wave, and
    `twinkle` sparkles isolated dim points such as a starfield, `sparkle` winks the
-   bright ones, such as sun on water, `flag` ripples a flag on its pole, and `gull`
-   flies a small white bird across the scene. The grid itself never changes.
+   bright ones, such as sun on water, and `flag` ripples a flag on its pole. The
+   grid itself never changes.
 4. **Render.** Every character is rasterised once at the exact cell size into an
    alpha mask, then blitted tinted by each cell's colour. Nothing is ever resampled,
    which is what keeps the glyph edges crisp.
@@ -159,27 +159,6 @@ rather than ripples; much above 2 and a flag a handful of cells deep is being sh
 not blown. Find the box with the picture's own colours: a flag is the reddest thing
 in a seascape, so `rgb[..., 0] - (rgb[..., 1] + rgb[..., 2]) / 2` locates it in a
 line.
-
-## A bird in the scene
-
-`gull` is the first effect that draws *shapes* rather than brightness, so it needs
-glyphs a brightness ramp does not carry. It asks for them with `charset_extra`, and
-the CLI builds the atlas after parsing the effects so they are there to use. Place it
-with `col` and `row`, in fractions of the grid:
-
-```bash
-.venv/bin/python -m asciibg.cli seafront.png \
-  --effect "gull:col=0.80,row=0.52,flaps=12,sway=2.5,bob=1.2"
-```
-
-It has four poses, wings up, level, down, level, so a flap is smooth in both
-directions. The body stays on the middle row throughout and only the wings sweep,
-which is the difference between flapping and hopping. The flap, the sway and the bob
-are whole numbers of cycles per loop, so the bird arrives back where it started.
-
-Put it over something dark. It is drawn pure white at the top of the ramp, so against
-a bright sky its sparse glyphs read as *holes* in the dense characters around them,
-not as a bird.
 
 ## True colour: lift the mids, do not clip them
 
