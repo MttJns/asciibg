@@ -85,8 +85,8 @@ name anything in the atlas.
 3. **Layer motion.** `glint` sweeps a bright band across, `scan` runs a line down
    that scrambles the characters it passes, `drift` is a slow brightness wave, and
    `twinkle` sparkles isolated dim points such as a starfield, `sparkle` winks the
-   bright ones, such as sun on water, and `gull` flies a small white bird across the
-   scene. The grid itself never changes.
+   bright ones, such as sun on water, `flag` ripples a flag on its pole, and `gull`
+   flies a small white bird across the scene. The grid itself never changes.
 4. **Render.** Every character is rasterised once at the exact cell size into an
    alpha mask, then blitted tinted by each cell's colour. Nothing is ever resampled,
    which is what keeps the glyph edges crisp.
@@ -137,6 +137,28 @@ excluded by column: run one sparkle down each side of it rather than one across.
 Raise `isolation` to keep it off a solid bright mass that happens to sit in the band,
 such as a hull on the horizon: at 0.01 the ship's edge cells flicker, at 0.08 they
 sit still while the water keeps three quarters of its sparkle.
+
+## A flag in the breeze
+
+`flag` displaces the cells inside a box vertically, by a wave running out along the
+cloth. Travel grows with distance from `pole`, given as a fraction across the box, so
+the hoist stays pinned and the fly end moves most:
+
+```bash
+.venv/bin/python -m asciibg.cli seafront.png \
+  --effect "flag:left=0.925,right=1.0,top=0.044,bottom=0.20,amplitude=1.5,waves=1.5,cycles=5"
+```
+
+Each column samples the *original* field rather than the running frame, which is what
+lets a cell that moves away show the sky behind it instead of a smear of itself. Give
+the box a row of margin above and below the cloth for the same reason.
+
+`amplitude` is in cells, and the useful range is narrower than it looks. Below about
+1.2 the shift rounds to zero for every column but the outermost, so the flag pops
+rather than ripples; much above 2 and a flag a handful of cells deep is being shaken,
+not blown. Find the box with the picture's own colours: a flag is the reddest thing
+in a seascape, so `rgb[..., 0] - (rgb[..., 1] + rgb[..., 2]) / 2` locates it in a
+line.
 
 ## A bird in the scene
 

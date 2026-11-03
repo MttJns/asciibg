@@ -305,7 +305,61 @@ class Gull(Effect):
                 cells.rgb[y, x] = 1.0
 
 
-EFFECTS = {"glint": Glint, "scan": Scan, "drift": Drift, "twinkle": Twinkle, "sparkle": Sparkle, "gull": Gull}
+@dataclass
+class Flag(Effect):
+    """Ripple a flag on its pole, as a breeze does.
+
+    The cells inside the box are displaced vertically, by a wave running out along
+    the cloth. Travel grows with distance from `pole`, a fraction across the box, so
+    the hoist stays pinned and the fly end moves most. Each column samples the
+    original field, which is what lets a cell that moves away show the sky behind it
+    rather than a smear of itself.
+
+    `amplitude` is in cells and `waves` is wavelengths along the cloth. One cell of
+    travel is already a lot at this scale: a flag in the frame is a few cells wide,
+    and anything more reads as a flag being shaken rather than a breeze.
+    """
+
+    left: float = 0.0
+    right: float = 1.0
+    top: float = 0.0
+    bottom: float = 1.0
+    amplitude: float = 1.0
+    waves: float = 1.0
+    cycles: float = 4.0
+    pole: float = 0.0
+
+    def apply(self, cells: Cells, ctx: Context) -> None:
+        rows, cols = cells.level.shape
+        x0, x1 = int(round(self.left * cols)), int(round(self.right * cols))
+        y0, y1 = int(round(self.top * rows)), int(round(self.bottom * rows))
+        x0, x1 = max(0, x0), min(cols, x1)
+        y0, y1 = max(0, y0), min(rows, y1)
+        if x1 - x0 < 1 or y1 - y0 < 1:
+            return
+
+        source = ctx.field if ctx.field is not None else None
+        if source is None:
+            return
+
+        span = float(x1 - x0)
+        t = (np.arange(x0, x1, dtype=np.float32) + 0.5 - x0) / span
+        grip = np.abs(t - self.pole) / max(self.pole, 1.0 - self.pole, 1e-6)
+        k = max(1.0, round(self.cycles))
+        wave = np.sin(2.0 * math.pi * (k * ctx.phase - self.waves * t))
+        shifts = np.rint(self.amplitude * grip * wave).astype(int)
+
+        y = np.arange(y0, y1)
+        for i, x in enumerate(range(x0, x1)):
+            shift = int(shifts[i])
+            if shift == 0:
+                continue
+            src = np.clip(y - shift, 0, rows - 1)
+            cells.level[y0:y1, x] = source.level[src, x]
+            cells.rgb[y0:y1, x] = source.rgb[src, x]
+
+
+EFFECTS = {"glint": Glint, "scan": Scan, "drift": Drift, "twinkle": Twinkle, "sparkle": Sparkle, "gull": Gull, "flag": Flag}
 
 
 def parse_effect(spec: str) -> Effect:

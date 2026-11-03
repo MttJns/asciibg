@@ -9,7 +9,7 @@ from PIL import Image
 
 from asciibg.check import LoopCheck
 from asciibg.effects import (
-    GULL_POSES, Drift, Glint, Gull, Scan, Sparkle, Twinkle, charset_extra,
+    GULL_POSES, Drift, Flag, Glint, Gull, Scan, Sparkle, Twinkle, charset_extra,
     parse_effect, parse_effects,
 )
 from asciibg.piece import Context, Field, Meta, cells_from_field, resolve_chars
@@ -280,6 +280,52 @@ class TestGull(unittest.TestCase):
             self.assertEqual(cells.level.shape, (20, 40))
 
 
+class TestFlag(unittest.TestCase):
+    """The hoist stays pinned; only the cloth beyond it travels."""
+
+    def setUp(self):
+        rows, cols = 20, 40
+        level = np.zeros((rows, cols), dtype=np.float32)
+        level[8:12, 20:32] = 0.8  # the cloth, four rows deep off a pole at column 20
+        self.field = Field(level=level, rgb=np.ones((rows, cols, 3), dtype=np.float32))
+        self.meta = Meta("t", cols, rows, 10, 1.0, " .-:+*=%#@")
+
+    def _cells(self, frame, **kw):
+        kw = {"left": 0.5, "right": 0.8, "top": 0.3, "bottom": 0.7, "amplitude": 2.0, **kw}
+        cells = cells_from_field(self.field)
+        Flag(**kw).apply(cells, Context(meta=self.meta, frame=frame, field=self.field))
+        return cells
+
+    def test_moves_the_cloth(self):
+        moved = max(
+            int((np.abs(self._cells(i).level - self.field.level) > 0.01).sum())
+            for i in range(self.meta.frame_count)
+        )
+        self.assertGreater(moved, 0)
+
+    def test_leaves_everything_outside_the_box_alone(self):
+        for i in range(self.meta.frame_count):
+            level = self._cells(i).level
+            np.testing.assert_array_equal(level[:6], self.field.level[:6])
+            np.testing.assert_array_equal(level[14:], self.field.level[14:])
+            np.testing.assert_array_equal(level[:, :20], self.field.level[:, :20])
+            np.testing.assert_array_equal(level[:, 32:], self.field.level[:, 32:])
+
+    def test_the_hoist_is_pinned_and_the_fly_end_travels_most(self):
+        at_pole, at_fly = 0, 0
+        for i in range(self.meta.frame_count):
+            level = self._cells(i).level
+            at_pole += int((np.abs(level[:, 20] - self.field.level[:, 20]) > 0.01).sum())
+            at_fly += int((np.abs(level[:, 31] - self.field.level[:, 31]) > 0.01).sum())
+        self.assertEqual(at_pole, 0)
+        self.assertGreater(at_fly, 0)
+
+    def test_does_nothing_without_a_field_to_sample(self):
+        cells = cells_from_field(self.field)
+        Flag(left=0.5, right=0.8).apply(cells, Context(meta=self.meta, frame=1))
+        np.testing.assert_array_equal(cells.level, self.field.level)
+
+
 class TestEffectSpecs(unittest.TestCase):
     def test_parses_name_and_arguments(self):
         effect = parse_effect("glint:period=4,strength=0.6")
@@ -331,6 +377,11 @@ class TestLoopSeamlessness(unittest.TestCase):
 
     def test_sparkle_loops(self):
         check = self._run([Sparkle(floor=0.0)])
+        self.assertTrue(check.ok(), check.report())
+
+    def test_flag_loops(self):
+        check = self._run([Flag(left=0.3, right=0.7, top=0.3, bottom=0.7, amplitude=2.0)])
+        self.assertGreater(check.step_delta, 0.0, "nothing moved")
         self.assertTrue(check.ok(), check.report())
 
     def test_all_effects_together_loop(self):
