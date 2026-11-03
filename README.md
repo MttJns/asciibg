@@ -122,8 +122,10 @@ already at the top of the ramp, so adding to it does nothing at all. `sparkle`
 *scales* instead, dropping a speck to `dim` and bringing it back, which reads as a
 catch of light rather than a glow.
 
-`top` and `bottom` hold it to a band of the frame, in fractions of the height, so the
-sky above and the subject below stay still:
+`top`, `bottom`, `left` and `right` hold it to a box of the frame, in fractions of
+the height and width, so the sky above and the subject standing in front of the water
+stay still. A subject that sits *inside* the band, such as a car on a dock, is
+excluded by column: run one sparkle down each side of it rather than one across.
 
 ```bash
 .venv/bin/python -m asciibg.cli seafront.png --loop 10 \
@@ -134,6 +136,22 @@ sky above and the subject below stay still:
 Raise `isolation` to keep it off a solid bright mass that happens to sit in the band,
 such as a hull on the horizon: at 0.01 the ship's edge cells flicker, at 0.08 they
 sit still while the water keeps three quarters of its sparkle.
+
+## True colour: lift the mids, do not clip them
+
+`--clip-low` is for a subject the background is burying. Reach for it and the picture
+goes dark, because everything below the percentile is gone, the subject with it. To
+keep a picture's own colours, leave the clip at its default and lift the mid tones
+instead, with `--gamma` *below* 1:
+
+```bash
+.venv/bin/python -m asciibg.cli seafront.png --clip-high 99 \
+  --gamma 0.8 --value-boost 0.3 --saturation 1.1
+```
+
+`--ramp block` is truer still, because `█` and `▓` fill the cell and carry the colour
+where `.` and `:` leave most of it black. It costs the ASCII texture, and the ramp is
+5 levels rather than 10, so pair it with a lower `--gamma` or the mid tones collapse.
 
 ## Shrinking a subject: zoom below 1
 

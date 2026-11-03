@@ -214,6 +214,13 @@ class TestSparkle(unittest.TestCase):
             np.testing.assert_array_equal(cells.level[:12], self.level[:12])
             np.testing.assert_array_equal(cells.level[18:], self.level[18:])
 
+    def test_the_band_takes_columns_too(self):
+        """A subject standing in front of the water is excluded by column."""
+        for i in range(self.meta.frame_count):
+            cells = self._cells(i, left=0.25, right=0.5)
+            np.testing.assert_array_equal(cells.level[:, :12], self.level[:, :12])
+            np.testing.assert_array_equal(cells.level[:, 24:], self.level[:, 24:])
+
 
 class TestEffectSpecs(unittest.TestCase):
     def test_parses_name_and_arguments(self):

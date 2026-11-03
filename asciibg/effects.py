@@ -205,13 +205,18 @@ class Sparkle(Effect):
     tint: float = 0.35
     top: float = 0.0
     bottom: float = 1.0
+    left: float = 0.0
+    right: float = 1.0
 
     def __post_init__(self) -> None:
         self._plan: Dict[int, tuple] = {}
 
     def _band(self, rows: int, cols: int) -> np.ndarray:
         y = (np.arange(rows, dtype=np.float32) + 0.5) / rows
-        return ((y >= self.top) & (y < self.bottom))[:, None] & np.ones((1, cols), bool)
+        x = (np.arange(cols, dtype=np.float32) + 0.5) / cols
+        return ((y >= self.top) & (y < self.bottom))[:, None] & (
+            (x >= self.left) & (x < self.right)
+        )[None, :]
 
     def _specks(self, ctx: Context, level: np.ndarray) -> tuple:
         key = id(ctx.meta)
