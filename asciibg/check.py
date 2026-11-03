@@ -38,19 +38,30 @@ class LoopCheck:
     def median_delta(self) -> float:
         return float(np.median(self.deltas)) if self.deltas else 0.0
 
+    @property
+    def step_delta(self) -> float:
+        """What a real frame step costs, as the 90th percentile of the steps.
+
+        The median is the wrong yardstick for sparse motion. A small sprite on a
+        still background leaves most consecutive frames identical, so the median is
+        zero and any wrap at all reads as a break, however exactly the loop closes.
+        A high percentile measures the steps that actually move something.
+        """
+        return float(np.percentile(self.deltas, 90)) if self.deltas else 0.0
+
     def report(self, tolerance: float = 3.0) -> str:
         """A one-line verdict. The wrap should look like any other frame step."""
-        med, wrap = self.median_delta, self.wrap_delta
-        if med < 1e-6:
+        step, wrap = self.step_delta, self.wrap_delta
+        if step < 1e-6:
             verdict = "seamless (static)" if wrap < 1e-6 else "BREAK"
-            return f"loop: {verdict} wrap={wrap:.4f} median={med:.4f}"
-        ratio = wrap / med
+            return f"loop: {verdict} wrap={wrap:.4f} step={step:.4f}"
+        ratio = wrap / step
         verdict = "seamless" if ratio <= tolerance else "BREAK"
-        return f"loop: {verdict} wrap={wrap:.4f} median={med:.4f} ratio={ratio:.2f}x"
+        return f"loop: {verdict} wrap={wrap:.4f} step={step:.4f} ratio={ratio:.2f}x"
 
     def ok(self, tolerance: float = 3.0) -> bool:
-        med = self.median_delta
-        return self.wrap_delta < 1e-6 if med < 1e-6 else self.wrap_delta / med <= tolerance
+        step = self.step_delta
+        return self.wrap_delta < 1e-6 if step < 1e-6 else self.wrap_delta / step <= tolerance
 
 
 def contact_sheet(frames: Sequence[np.ndarray], path: Path, *, safe_zone: bool = True) -> None:
