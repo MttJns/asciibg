@@ -1,30 +1,70 @@
 # asciibg
 
-Turn a base image into a seamlessly looping, pixelated ASCII animation, exported as
-an MP4 for Zoom virtual backgrounds and a GIF for the web. The look follows
-[ascii.rest](https://ascii.rest): the art is quantised once into a fixed grid of
-characters, and motion is a layer over it.
+Seamlessly looping ASCII animations, exported as an MP4 for video-call backgrounds
+and a GIF for the web. Start from your own photo, from one of six procedural scenes,
+or from a sentence describing what you want.
+
+The look follows [ascii.rest](https://ascii.rest): the art is quantised once into a
+fixed grid of characters, and motion is a layer over the top. Every loop closes
+exactly — frame *N* is never rendered, because it *is* frame 0.
+
+```bash
+asciibg --scene matrix:density=0.7,palette=amber -o out
+asciibg --prompt "slow heavy snow on a cold blue night" -o out
+asciibg photo.jpg --loop 12 --center-dim 0.5 -o out
+```
 
 ## Install
 
 ```bash
+pip install git+https://github.com/YOUR-USER/asciibg.git
+```
+
+Or from a clone, for hacking on it:
+
+```bash
+git clone https://github.com/YOUR-USER/asciibg.git
+cd asciibg
 python3 -m venv .venv && .venv/bin/pip install -e .
 ```
 
-Needs `ffmpeg` on PATH. Uses a system monospace font (Menlo on macOS); no download.
+Python 3.9 or newer. Two things have to be on the machine already:
+
+**ffmpeg**, on `PATH`. Frames are piped straight into it.
+
+```bash
+brew install ffmpeg                       # macOS
+sudo apt-get install ffmpeg               # Debian, Ubuntu
+winget install Gyan.FFmpeg                # Windows
+```
+
+**A monospace font.** Nothing is downloaded; `asciibg` searches the system font
+directories and takes the best fixed-pitch face it finds — Menlo, SF Mono or Andale
+Mono on macOS, DejaVu Sans Mono, Liberation Mono, Noto Sans Mono or Ubuntu Mono on
+Linux, Consolas, Lucida Console or Courier New on Windows. Point it somewhere else
+with `--font /path/to/Mono.ttf`. It will refuse a proportional font rather than
+silently shear the grid, because every cell is exactly one advance wide.
 
 ## Use
 
 ```bash
-.venv/bin/python -m asciibg.cli photo.jpg -o out
+asciibg photo.jpg -o out
 ```
 
-Writes `out/photo.mp4` (1920x1080, H.264, yuv420p), `out/photo.gif`,
-`out/photo.png` (first frame, as a still background) and `out/photo-sheet.png`
-(a 3x3 contact sheet with the speaker's safe zone marked).
+Writes four files:
+
+| file | what it is |
+|---|---|
+| `out/photo.mp4` | 1920x1080, H.264, yuv420p, faststart — the background itself |
+| `out/photo.gif` | the same loop, for the web |
+| `out/photo.png` | the first frame, usable as a still background |
+| `out/photo-sheet.png` | a 3x3 contact sheet with the speaker's safe zone marked |
+
+The CLI exits non-zero if the loop check fails, so it drops into a script or a CI job
+as-is. `asciibg --help` lists every flag; `asciibg --list-scenes` lists the catalogue.
 
 ```bash
-.venv/bin/python -m asciibg.cli photo.jpg \
+asciibg photo.jpg \
   --loop 12 --ramp dot --center-dim 0.5 \
   --effect "glint:period=5,strength=0.6" \
   --effect "scan:period=9" \
@@ -37,9 +77,9 @@ Scenes are computed per frame rather than quantised from a picture, the way
 ascii.rest's own scenes are. Pick one directly, or describe what you want:
 
 ```bash
-.venv/bin/python -m asciibg.cli --scene matrix:density=0.7,palette=amber -o out
-.venv/bin/python -m asciibg.cli --prompt "slow heavy snow on a cold blue night" -o out
-.venv/bin/python -m asciibg.cli --list-scenes
+asciibg --scene waves:palette=ember -o out
+asciibg --prompt "retro synthwave grid" -o out
+asciibg --list-scenes
 ```
 
 | scene | what it draws |
@@ -53,11 +93,11 @@ ascii.rest's own scenes are. Pick one directly, or describe what you want:
 
 Palettes: `ice`, `amber`, `green`, `ember`, `violet`, `mono`.
 
-`--prompt` selects and tunes a scene; it does not generate one. A fixed catalogue
-that is known to loop and known to read as a background is worth more than free-form
-generation that may do neither. Colour words set the palette, pace words
-(`fast`/`slow`) and quantity words (`heavy`/`sparse`) turn the knobs, and a prompt
-matching nothing falls back to `nebula` and says so.
+`--prompt` selects and tunes a scene; it does not generate one, and it calls no
+network service. A fixed catalogue that is known to loop and known to read as a
+background is worth more than free-form generation that may do neither. Colour words
+set the palette, pace words (`fast`/`slow`) and quantity words (`heavy`/`sparse`)
+turn the knobs, and a prompt matching nothing falls back to `nebula` and says so.
 
 ### Two things scenes needed from the renderer
 
@@ -83,16 +123,49 @@ name anything in the atlas.
    `-` carries less ink than `:`, and `%` less than `#`. `--no-sort-ramp` keeps the
    written order.
 3. **Layer motion.** `glint` sweeps a bright band across, `scan` runs a line down
-   that scrambles the characters it passes, `drift` is a slow brightness wave, and
+   that scrambles the characters it passes, `drift` is a slow brightness wave,
    `twinkle` sparkles isolated dim points such as a starfield, `sparkle` winks the
-   bright ones, such as sun on water, and `flag` ripples a flag on its pole. The
-   grid itself never changes.
+   bright ones such as sun on water, and `flag` ripples a flag on its pole. The grid
+   itself never changes.
 4. **Render.** Every character is rasterised once at the exact cell size into an
    alpha mask, then blitted tinted by each cell's colour. Nothing is ever resampled,
    which is what keeps the glyph edges crisp.
 5. **Encode.** Raw frames pipe straight into ffmpeg; the GIF is made from the video.
 
-## Subjects on a dark background
+## Looping
+
+Every effect and every scene is a function of the loop phase alone, built from
+periodic terms or from tables indexed by frame number. Anything that moves advances a
+whole number of wraps per loop, and anything random comes from a frame-indexed table.
+`loop_noise` is built from sines whose time frequencies are whole numbers for the
+same reason — true value noise would need a tileable lattice to manage it.
+
+Frame count is exactly `loop * fps`, and frame `N` is never rendered because it *is*
+frame 0. Each render reports a check comparing the last-to-first step against the
+90th percentile of the ordinary frame-to-frame steps. The percentile matters: sparse
+motion, such as a small sprite on a still background, leaves most consecutive frames
+identical, so a median baseline is zero and calls an exact loop a break.
+
+Every scene in the catalogue is tested for this, and so is every effect.
+
+## Tuning a photo
+
+### True colour: lift the mids, do not clip them
+
+`--clip-low` is for a subject the background is burying. Reach for it and the picture
+goes dark, because everything below the percentile is gone, the subject with it. To
+keep a picture's own colours, leave the clip at its default and lift the mid tones
+instead, with `--gamma` *below* 1:
+
+```bash
+asciibg photo.jpg --clip-high 99 --gamma 0.8 --value-boost 0.3 --saturation 1.1
+```
+
+`--ramp block` is truer still, because `█` and `▓` fill the cell and carry the colour
+where `.` and `:` leave most of it black. It costs the ASCII texture, and the ramp is
+5 levels rather than 10, so pair it with a lower `--gamma` or the mid tones collapse.
+
+### Subjects on a dark background
 
 A picture that is mostly background, such as a ship on a night sky, puts its subject
 at the bottom of the ramp, because the sky dominates the histogram. Two controls fix
@@ -109,13 +182,13 @@ is what a star becomes once a 12x24 px patch of sky averages into a single cell.
 large bright subject fails the isolation test, so it never sparkles.
 
 ```bash
-.venv/bin/python -m asciibg.cli xwing.jpg --loop 10 \
+asciibg spaceship.jpg --loop 10 \
   --cols 240 --rows 60 --zoom 0.45 --offset-x -0.9 --offset-y 0.45 \
   --clip-low 70 --clip-high 99.5 --gamma 0.7 --value-boost 0.85 --saturation 1.4 \
   --effect "twinkle:amplitude=0.45,density=0.6"
 ```
 
-## Bright highlights: `sparkle` rather than `twinkle`
+### Bright highlights: `sparkle` rather than `twinkle`
 
 The two look alike and work opposite ways. `twinkle` *adds* brightness to cells that
 are dim, which is what a star is. A highlight on water is the other case: the cell is
@@ -129,7 +202,7 @@ stay still. A subject that sits *inside* the band, such as a car on a dock, is
 excluded by column: run one sparkle down each side of it rather than one across.
 
 ```bash
-.venv/bin/python -m asciibg.cli seafront.png --loop 10 \
+asciibg seafront.jpg --loop 10 \
   --clip-low 68 --clip-high 99 --value-boost 0.7 \
   --effect "sparkle:top=0.22,bottom=0.72,density=0.75,dim=0.3,isolation=0.08"
 ```
@@ -138,14 +211,14 @@ Raise `isolation` to keep it off a solid bright mass that happens to sit in the 
 such as a hull on the horizon: at 0.01 the ship's edge cells flicker, at 0.08 they
 sit still while the water keeps three quarters of its sparkle.
 
-## A flag in the breeze
+### A flag in the breeze
 
 `flag` displaces the cells inside a box vertically, by a wave running out along the
 cloth. Travel grows with distance from `pole`, given as a fraction across the box, so
 the hoist stays pinned and the fly end moves most:
 
 ```bash
-.venv/bin/python -m asciibg.cli seafront.png \
+asciibg seafront.jpg \
   --effect "flag:left=0.925,right=1.0,top=0.044,bottom=0.20,amplitude=1.5,waves=1.5,cycles=5"
 ```
 
@@ -160,23 +233,7 @@ not blown. Find the box with the picture's own colours: a flag is the reddest th
 in a seascape, so `rgb[..., 0] - (rgb[..., 1] + rgb[..., 2]) / 2` locates it in a
 line.
 
-## True colour: lift the mids, do not clip them
-
-`--clip-low` is for a subject the background is burying. Reach for it and the picture
-goes dark, because everything below the percentile is gone, the subject with it. To
-keep a picture's own colours, leave the clip at its default and lift the mid tones
-instead, with `--gamma` *below* 1:
-
-```bash
-.venv/bin/python -m asciibg.cli seafront.png --clip-high 99 \
-  --gamma 0.8 --value-boost 0.3 --saturation 1.1
-```
-
-`--ramp block` is truer still, because `█` and `▓` fill the cell and carry the colour
-where `.` and `:` leave most of it black. It costs the ASCII texture, and the ramp is
-5 levels rather than 10, so pair it with a lower `--gamma` or the mid tones collapse.
-
-## Shrinking a subject: zoom below 1
+### Shrinking a subject: zoom below 1
 
 `--zoom` below 1 makes the window larger than the image, so the subject shrinks and
 the rest is padding. Two things have to be right or the result gives itself away:
@@ -193,7 +250,16 @@ the rest is padding. Two things have to be right or the result gives itself away
 Both are tested: one case asserts the clip still bites when most of the frame is
 padding, another that the padded cells match the real sky's mean brightness.
 
-## Keeping the subject out from behind your head
+## Making it work as a video-call background
+
+- Zoom takes MP4/MOV video and JPG/PNG stills, at up to 1920x1080. Check your own
+  client's limits; other apps differ.
+- Your head and shoulders cover roughly the centre of the frame. `--center-dim 0.5`
+  fades that area so your face reads against it; the contact sheet marks the zone.
+- "Mirror my video" flips your self-view, so lettering reads backwards to you but
+  correctly to everyone else. Prefer art without text.
+
+### Keeping the subject out from behind your head
 
 `--zoom` and `--offset-x/--offset-y` pan the subject away from the centre. A source
 already at 16:9 has no pan room at all, so every bit of it has to be bought by
@@ -210,47 +276,38 @@ ship = field.level > 0.5
 hidden = ship[head].sum() / ship.sum()
 ```
 
-For the X-wing above, centred put 50% of the ship behind the speaker's head. Sweeping
-zoom and offset found `--zoom 1.5 --offset-x 0.9 --offset-y 1.0`, which drops it to
-3.7% by lifting the ship into a banner across the top, at the cost of the nose
-running off the left edge.
+For one spaceship photo, centred put 50% of the ship behind the speaker's head.
+Sweeping zoom and offset found `--zoom 1.5 --offset-x 0.9 --offset-y 1.0`, which
+drops it to 3.7% by lifting the ship into a banner across the top, at the cost of the
+nose running off the left edge.
 
 ## Geometry
 
 The grid must divide the frame exactly, so cells land on whole pixels. The default
 160x45 into 1920x1080 gives 12x24 px cells, and Menlo at size 20 has an advance of
 exactly 12 px and a height of exactly 24. Other exact fits: 192x54, 240x60, 128x36.
+A grid that does not divide is rejected with the arithmetic and some suggestions,
+rather than quietly rounded.
 
-## Looping
-
-Every effect is a function of the loop phase alone, built from periodic terms or
-from tables indexed by frame number. Frame count is exactly `loop * fps`, and frame
-`N` is never rendered because it *is* frame 0. Each render reports a loop check that
-compares the last-to-first step against the median frame-to-frame step; the CLI
-exits non-zero if the wrap breaks.
-
-## Making it work as a Zoom background
-
-- Zoom takes MP4/MOV video and JPG/PNG stills, at up to 1920x1080.
-- Your head and shoulders cover roughly the centre of the frame. `--center-dim 0.5`
-  fades that area so your face reads against it; the contact sheet marks the zone.
-- Zoom's "mirror my video" flips your self-view, so lettering reads backwards to you
-  but correctly to everyone else. Prefer art without text.
-
-## Looping, for scenes
-
-The same rule as the effects, and it is what the catalogue is built around: anything
-that moves advances a whole number of wraps per loop, and anything random comes from
-a table indexed by frame number. `loop_noise` is built from sines whose time
-frequencies are whole numbers for the same reason - true value noise would need a
-tileable lattice to manage it. Every scene in the catalogue is tested for this.
-
-## Tests
+## Development
 
 ```bash
+python3 -m venv .venv && .venv/bin/pip install -e .
 .venv/bin/python -m unittest discover -s tests
 ```
 
-47 tests. The scene suite runs the whole catalogue through the same checks: each one
-loops, stays in 0..1, lights something, and never names a character outside its
-atlas.
+62 tests, no network and no fixtures on disk. The scene suite runs the whole
+catalogue through the same checks — each one loops, stays in 0..1, lights something,
+and never names a character outside its atlas — so a seventh scene inherits them.
+
+CI runs the tests on Python 3.9 through 3.13 on Linux, and once each on macOS and
+Windows, then builds a wheel and renders a real loop from it.
+
+`PLAN.md` holds the original design notes and the work deliberately left undone
+(edge-detected "logo" style, k-means palettes, preset files, depth parallax).
+
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).

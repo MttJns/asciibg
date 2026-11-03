@@ -124,7 +124,18 @@ def list_scenes() -> int:
 
 
 def main(argv: Sequence[str] = None) -> int:
-    args = build_parser().parse_args(argv)
+    """Entry point. Turns a missing prerequisite into a message, not a traceback."""
+    try:
+        return run(build_parser().parse_args(argv))
+    except RuntimeError as problem:
+        print(f"asciibg: {problem}", file=sys.stderr)
+        return 1
+    except ValueError as problem:  # an unknown scene or effect in a spec
+        print(f"asciibg: {problem}", file=sys.stderr)
+        return 1
+
+
+def run(args: argparse.Namespace) -> int:
     if args.list_scenes:
         return list_scenes()
 

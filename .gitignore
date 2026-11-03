@@ -3,3 +3,9 @@ out/
 __pycache__/
 *.pyc
 samples/
+
+# Build artefacts
+build/
+dist/
+*.egg-info/
+.pytest_cache/

@@ -15,7 +15,13 @@ def require_ffmpeg() -> str:
     """Return the ffmpeg binary path, or raise if it is not installed."""
     path = shutil.which("ffmpeg")
     if not path:
-        raise RuntimeError("ffmpeg not found on PATH")
+        raise RuntimeError(
+            "ffmpeg not found on PATH. Frames are piped straight into it, so it has "
+            "to be installed:\n"
+            "  macOS          brew install ffmpeg\n"
+            "  Debian/Ubuntu  sudo apt-get install ffmpeg\n"
+            "  Windows        winget install Gyan.FFmpeg"
+        )
     return path
 
 

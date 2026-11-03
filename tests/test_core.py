@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+import os
 import unittest
 
 import numpy as np
@@ -16,7 +19,7 @@ from asciibg.quantize import (
     _padding_mask, cover_crop, dilate, extend_sky, field_from_image, frame_source,
 )
 from asciibg.ramps import ramp
-from asciibg.render import build_atlas, render_frame, sort_by_ink
+from asciibg.render import build_atlas, find_font, font_dirs, render_frame, sort_by_ink
 
 COLS, ROWS, CELL_W, CELL_H, FPS, LOOP = 40, 12, 12, 24, 12, 2.0
 
@@ -53,6 +56,34 @@ class TestAtlas(unittest.TestCase):
     def test_unsorted_menlo_ramp_is_not_monotonic(self):
         ink = self.atlas.masks.reshape(self.atlas.size, -1).mean(axis=1)
         self.assertFalse(np.all(np.diff(ink) >= 0))
+
+
+class TestFontDiscovery(unittest.TestCase):
+    """Other machines keep fonts elsewhere, so discovery searches, not guesses."""
+
+    def test_finds_a_font_on_this_machine(self):
+        path, index = find_font()
+        self.assertTrue(os.path.exists(path), path)
+        self.assertIsInstance(index, int)
+
+    def test_only_reports_directories_that_exist(self):
+        for directory in font_dirs():
+            self.assertTrue(os.path.isdir(directory), directory)
+
+    def test_refuses_a_proportional_font(self):
+        """One advance per cell is the grid's whole premise."""
+        proportional = next(
+            (p for p in (
+                "/System/Library/Fonts/Supplemental/Georgia.ttf",
+                "/System/Library/Fonts/Supplemental/Arial.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "C:\\Windows\\Fonts\\arial.ttf",
+            ) if os.path.exists(p)), None)
+        if proportional is None:
+            self.skipTest("no proportional font on this machine to test with")
+        with self.assertRaises(RuntimeError) as caught:
+            build_atlas(" .-:+*=%#@", 12, 24, font=proportional)
+        self.assertIn("not monospace", str(caught.exception))
 
 
 class TestQuantize(unittest.TestCase):
@@ -382,6 +413,17 @@ class TestRender(unittest.TestCase):
 
 
 class TestCli(unittest.TestCase):
+    def test_a_missing_prerequisite_is_a_message_not_a_traceback(self):
+        from asciibg.cli import main
+
+        for argv in (["--scene", "volcano"], ["--scene", "rain", "--effect", "kenburns"]):
+            with self.subTest(argv=argv):
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    code = main(argv)
+                self.assertEqual(code, 1)
+                self.assertTrue(err.getvalue().startswith("asciibg: "), err.getvalue())
+
     def test_grid_must_divide_the_frame(self):
         from asciibg.cli import build_parser, _check_grid
 

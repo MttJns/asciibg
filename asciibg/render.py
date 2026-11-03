@@ -14,20 +14,72 @@ from typing import Optional, Sequence, Tuple
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-FONT_CANDIDATES = (
-    ("/System/Library/Fonts/Menlo.ttc", 0),
-    ("/System/Library/Fonts/SFNSMono.ttf", 0),
-    ("/System/Library/Fonts/Supplemental/Andale Mono.ttf", 0),
-    ("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 0),
+# Monospace faces worth using, best first, by file name rather than full path: the
+# same font sits in different directories on each platform, and distributions move
+# them between releases. Every one of these is fixed-pitch, which the grid requires.
+FONT_FILES = (
+    ("Menlo.ttc", 0),                   # macOS
+    ("SFNSMono.ttf", 0),
+    ("Andale Mono.ttf", 0),
+    ("DejaVuSansMono.ttf", 0),          # most Linux distributions
+    ("LiberationMono-Regular.ttf", 0),
+    ("NotoSansMono-Regular.ttf", 0),
+    ("UbuntuMono-R.ttf", 0),
+    ("consola.ttf", 0),                 # Windows
+    ("lucon.ttf", 0),
+    ("cour.ttf", 0),
 )
 
 
+def font_dirs() -> Tuple[str, ...]:
+    """The directories this platform keeps fonts in, that actually exist."""
+    candidates = (
+        "/System/Library/Fonts",
+        "/System/Library/Fonts/Supplemental",
+        "/Library/Fonts",
+        os.path.expanduser("~/Library/Fonts"),
+        "/usr/share/fonts",
+        "/usr/local/share/fonts",
+        os.path.expanduser("~/.fonts"),
+        os.path.expanduser("~/.local/share/fonts"),
+        os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts"),
+    )
+    return tuple(d for d in candidates if os.path.isdir(d))
+
+
 def find_font() -> Tuple[str, int]:
-    """Return the first available monospace font as (path, face index)."""
-    for path, index in FONT_CANDIDATES:
-        if os.path.exists(path):
-            return path, index
-    raise RuntimeError("no monospace font found; pass --font explicitly")
+    """Search this platform's font directories for the best monospace face.
+
+    Returns (path, face index). Preference is by position in `FONT_FILES`, not by
+    which directory is searched first, so a machine with both Menlo and DejaVu gets
+    Menlo wherever each one happens to live.
+    """
+    rank = {name.lower(): i for i, (name, _) in enumerate(FONT_FILES)}
+    best = None
+    for directory in font_dirs():
+        for root, _, files in os.walk(directory):
+            for name in files:
+                i = rank.get(name.lower())
+                if i is not None and (best is None or i < best[0]):
+                    best = (i, os.path.join(root, name))
+    if best is None:
+        looked = ", ".join(font_dirs()) or "no font directory on this system"
+        raise RuntimeError(
+            "no monospace font found. Pass one with --font /path/to/Mono.ttf.\n"
+            f"Looked for {', '.join(n for n, _ in FONT_FILES)} in: {looked}"
+        )
+    return best[1], FONT_FILES[best[0]][1]
+
+
+def check_monospace(face: "ImageFont.FreeTypeFont", path: str) -> None:
+    """Refuse a proportional font: the whole grid assumes one advance width."""
+    widths = {round(face.getlength(ch), 3) for ch in "iWM.@"}
+    if len(widths) > 1:
+        raise RuntimeError(
+            f"{path} is not monospace: its characters have advances {sorted(widths)}. "
+            "Every cell is one advance wide, so a proportional font shears the grid. "
+            "Pass a fixed-pitch font with --font."
+        )
 
 
 def fit_font_size(path: str, index: int, cell_w: int, max_size: int = 200) -> int:
@@ -68,6 +120,7 @@ def build_atlas(
     path, index = (font, font_index) if font else find_font()
     size = font_size or fit_font_size(path, index, cell_w)
     face = ImageFont.truetype(path, size, index=index)
+    check_monospace(face, path)
     ascent, descent = face.getmetrics()
     advance = face.getlength("@")
 
