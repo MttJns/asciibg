@@ -99,6 +99,10 @@ def build_parser() -> argparse.ArgumentParser:
     out.add_argument("--gif-width", type=int, default=720)
     out.add_argument("--gif-fps", type=int, default=15)
     out.add_argument("--no-sheet", dest="sheet", action="store_false")
+    out.add_argument("--still", type=int, metavar="FRAME",
+                     help="render this one frame to the PNG and stop. Framing and tone "
+                          "take a second to judge this way and half a minute as a video, "
+                          "and it needs no ffmpeg")
     out.add_argument("-q", "--quiet", action="store_true")
     return p
 
@@ -204,20 +208,29 @@ def run(args: argparse.Namespace) -> int:
     sheet: List[np.ndarray] = []
     sheet_at = {round(i * total / SHEET_FRAMES) for i in range(SHEET_FRAMES)}
 
+    def draw(i: int) -> np.ndarray:
+        ctx = Context(meta=meta, frame=i, field=field)
+        if scene is not None:
+            cells = scene.render(ctx)
+            if dim is not None:
+                cells.level = (cells.level * (1.0 - dim)).astype(np.float32)
+        else:
+            cells = cells_from_field(field)
+        for effect in effects:
+            effect.apply(cells, ctx)
+        return render_frame(resolve_chars(cells, meta.ramp_len, atlas.size), cells.rgb, atlas, args.bg)
+
+    if args.still is not None:
+        i = args.still % total
+        save_png(draw(i), png_path)
+        say(f"still frame {i} of {total}")
+        print(f"png  {png_path}")
+        return 0
+
     started = time.time()
     with Mp4Writer(mp4_path, args.width, args.height, args.fps, crf=args.crf) as writer:
         for i in range(total):
-            ctx = Context(meta=meta, frame=i, field=field)
-            if scene is not None:
-                cells = scene.render(ctx)
-                if dim is not None:
-                    cells.level = (cells.level * (1.0 - dim)).astype(np.float32)
-            else:
-                cells = cells_from_field(field)
-            for effect in effects:
-                effect.apply(cells, ctx)
-            frame = render_frame(resolve_chars(cells, meta.ramp_len, atlas.size), cells.rgb, atlas, args.bg)
-
+            frame = draw(i)
             writer.write(frame)
             check.add(frame)
             if i == 0:

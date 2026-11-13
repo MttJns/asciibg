@@ -72,3 +72,23 @@ jobs:
           cd "$(mktemp -d)"
           asciibg --prompt "slow heavy snow on a cold blue night" --loop 2 --fps 12 -o out
           test -s out/rain.mp4
+
+      - name: Measure a picture with the probe, then preview one frame of it
+        run: |
+          python - <<'PY'
+          from PIL import Image
+          import numpy as np
+          a = np.zeros((180, 320, 3), dtype=np.uint8)
+          a[60:70, 20:60] = (255, 128, 40)     # a tan thing to find
+          a[120:126, :] = (230, 0, 170)        # a magenta surface to run it along
+          Image.fromarray(a).save("probe.png")
+          PY
+          python -m tools.probe probe.png --cols 160 --rows 45 --find blobs --hue 25 \
+            | tee /dev/stderr | grep -q 'left='
+          python -m tools.probe probe.png --cols 160 --rows 45 --find ridge --hue 320 \
+            --band 25-35 | tee /dev/stderr | grep -q 'x0='
+          # The preview path takes no ffmpeg, so it is worth proving it writes a frame
+          # and nothing else.
+          asciibg probe.png --cols 160 --rows 45 -o still --still 3
+          test -s still/probe.png
+          test ! -e still/probe.mp4

@@ -27,6 +27,45 @@ reads as stripes. If it needs characters a brightness ramp would not carry, list
 them in `charset_extra`; they go into the atlas after the ramp, so brightness never
 quantises into them.
 
+## Animating a real picture
+
+Every parameter of an effect is a fact about the picture: where a thing is, which way
+its surface slopes, how far it may travel between frames. Guessing them costs renders,
+so measure them. `tools/probe.py` takes the same flags as `asciibg` itself, which
+means the framing you measure is the framing you render.
+
+1. **Frame it on a still, not on a video.** `--still N` renders one frame to the PNG
+   and stops. It takes about half a second where a full render takes half a minute,
+   and it needs no ffmpeg, so iterate on framing and tone here.
+
+2. **Find the things by their own colour.** `--find blobs --hue 25` boxes everything
+   tan; `--hue 320` everything magenta. Each box is printed as
+   `left=..,right=..,top=..,bottom=..`, ready to paste into an effect. Tighten
+   `--spread` and `--gap` until the number of boxes matches what you can see: too
+   generous a gap joins a barrel to the hand holding it.
+
+3. **Find the surfaces the same way.** `--find ridge --hue 320 --band 36-46` reads the
+   topmost masked row per column and prints `x0=..,y0=..,x1=..,y1=..`. It reports the
+   *top* of a beam rather than a line fitted through it, because that is what a thing
+   rests on, and it orders the endpoints downhill, because that is the way a thing
+   rolls.
+
+4. **Check the motion afterwards.** `--find motion --effect ...` reports how many
+   distinct frames the loop really has and how far the moving thing travels per frame
+   as a share of its own width. **The loop check cannot do this.** It asks whether the
+   loop closes, not whether the frames in between join up, and it will call a strobe
+   seamless at a ratio of 1.00.
+
+## Things that have caught people out
+
+| | |
+|---|---|
+| `--offset-x/y` is a fraction of the *slack*, not of the image, and is clamped to it | Four different values rendered the same frame before anyone noticed `-1.0` was what "flush to the top" meant |
+| Crossing time is `loop / cycles`, and `cycles` is rounded to a whole number | A loop has to contain whole traversals. To change speed by a non-integer factor, change `--loop` |
+| A glyph outside the ramp silently draws nothing | `ctx.meta.charset.find` returns -1. Worse, a test whose atlas is the ramp alone then passes on an empty frame, so assert `check.step_delta > 0` |
+| Adding brightness does nothing at the top of the ramp | Why `sparkle` scales where `twinkle` adds |
+| Displacing cells means sampling `ctx.field` | Sampling the running frame smears |
+
 ## Adding an effect
 
 Subclass `Effect` in `asciibg/effects.py` and add it to `EFFECTS`. `apply` mutates
@@ -40,14 +79,13 @@ from a table indexed by frame number rather than from a fresh draw. Add a case t
 
 Two things worth knowing before you write a new one:
 
-- Effects that *add* brightness do nothing to a cell already at the top of the ramp.
-  That is why `sparkle` scales where `twinkle` adds.
-- An effect that displaces cells should sample `ctx.field`, the quantised original,
-  rather than the running frame. Sampling the running frame smears.
+- The table above is the short version; all of it applies to a new effect.
 - An effect that moves part of the picture should lift it from `ctx.field` once and
   blank where it came from, as `roll` does. Deriving its starting place from the box
   rather than taking it as a parameter makes frame 0 the untouched picture, which a
   test can assert exactly.
+- Measure the motion with `--find motion` before you believe it. `TestLoopSeamlessness`
+  proves the loop closes and nothing more.
 
 ## House style
 

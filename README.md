@@ -63,6 +63,12 @@ Writes four files:
 The CLI exits non-zero if the loop check fails, so it drops into a script or a CI job
 as-is. `asciibg --help` lists every flag; `asciibg --list-scenes` lists the catalogue.
 
+`--still N` renders one frame to the PNG and stops, in about half a second and with no
+ffmpeg needed. Judge framing and tone there rather than waiting out a video. For
+measuring a picture before animating it — where things are, which way a surface slopes,
+whether the motion you set up actually travels — see `tools/probe.py` and the recipe in
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ```bash
 asciibg photo.jpg \
   --loop 12 --ramp dot --center-dim 0.5 \
