@@ -302,10 +302,25 @@ class Flag(Effect):
             cells.rgb[y0:y1, x] = source.rgb[src, x]
 
 
-# A barrel seen side on is an oval with a band around it. Four poses turn that band
-# through half a revolution, which is as far as it can go before it looks the same
-# again, so the glyph cycle reads as rolling rather than as flickering.
-BARREL_POSES = ("(|)", "(/)", "(-)", "(\\)")
+# A barrel at the scale the picture draws one: the stacked barrels beside Donkey Kong
+# measure about ten cells across and six deep on a 240x60 grid, so a sprite any
+# smaller reads as a bead rather than as the same object rolling.
+#
+# The staves are what turn. Three of them sit every third column of a nine-wide body,
+# and each pose shifts them one column on, so the set wraps back to where it began
+# after three poses and the barrel keeps the same number of staves throughout. A
+# cycle that gained or lost one would read as flicker rather than as rotation.
+BARREL_BODY = ("|==", "=|=", "==|")
+BARREL_POSES = tuple(
+    (
+        " ========= ",
+        f"({body * 3})",
+        f"({body * 3})",
+        f"({body * 3})",
+        " ========= ",
+    )
+    for body in BARREL_BODY
+)
 
 
 @dataclass
@@ -318,11 +333,11 @@ class Roll(Effect):
     the loop every barrel stands exactly where it started and the wrap costs nothing.
 
     Drawn as characters rather than brightness, so `charset_extra` asks for glyphs
-    the ramp has no room for. `lift` raises the sprite off the line, in cells, since
-    a barrel sits on top of a girder rather than inside it.
+    the ramp has no room for. `lift` is the gap in cells between the track and the
+    bottom of the sprite, since a barrel sits on top of a girder rather than in it.
     """
 
-    charset_extra = "()|/\\-"
+    charset_extra = "()|="
 
     x0: float = 0.0
     y0: float = 0.5
@@ -348,20 +363,24 @@ class Roll(Effect):
             y = (self.y0 + (self.y1 - self.y0) * t) * rows - self.lift
             pose = BARREL_POSES[int(t * max(1.0, round(self.spins)) * len(BARREL_POSES))
                                 % len(BARREL_POSES)]
-            row = int(round(y))
-            if not 0 <= row < rows:
-                continue
-            start = int(round(x)) - len(pose) // 2
-            for dx, ch in enumerate(pose):
-                col = start + dx
-                if not 0 <= col < cols:
+            # The track is the ground the barrel rests on, so the sprite hangs above
+            # it: its last line lands on the lifted row and the rest stack upwards.
+            base = int(round(y)) - (len(pose) - 1)
+            start = int(round(x)) - len(pose[0]) // 2
+            for dy, line in enumerate(pose):
+                row = base + dy
+                if not 0 <= row < rows:
                     continue
-                index = ctx.meta.charset.find(ch)
-                if index < 0:
-                    continue
-                cells.char[row, col] = index
-                cells.level[row, col] = 1.0
-                cells.rgb[row, col] = colour
+                for dx, ch in enumerate(line):
+                    col = start + dx
+                    if ch == " " or not 0 <= col < cols:
+                        continue
+                    index = ctx.meta.charset.find(ch)
+                    if index < 0:
+                        continue
+                    cells.char[row, col] = index
+                    cells.level[row, col] = 1.0
+                    cells.rgb[row, col] = colour
 
 
 EFFECTS = {"glint": Glint, "scan": Scan, "drift": Drift, "twinkle": Twinkle,

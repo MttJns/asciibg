@@ -12,8 +12,8 @@ from PIL import Image
 
 from asciibg.check import LoopCheck
 from asciibg.effects import (
-    Drift, Flag, Glint, Roll, Scan, Sparkle, Twinkle, charset_extra, parse_effect,
-    parse_effects,
+    BARREL_POSES, Drift, Flag, Glint, Roll, Scan, Sparkle, Twinkle, charset_extra,
+    parse_effect, parse_effects,
 )
 from asciibg.piece import Context, Field, Meta, cells_from_field, resolve_chars
 from asciibg.quantize import (
@@ -323,7 +323,7 @@ class TestRoll(unittest.TestCase):
             rgb=np.zeros((self.rows, self.cols, 3), dtype=np.float32),
         )
         # The ramp alone has no brackets, so the sprite would silently draw nothing.
-        self.charset = ramp("shade") + "()|/\\"
+        self.charset = ramp("shade") + "()|"
         self.meta = Meta("t", self.cols, self.rows, 10, 1.0, self.charset,
                          ramp_size=len(ramp("shade")))
 
@@ -336,10 +336,13 @@ class TestRoll(unittest.TestCase):
     def _drawn(self, cells):
         return np.argwhere(cells.char >= 0)
 
-    def test_barrels_sit_on_the_track(self):
+    def test_barrels_rest_on_the_track(self):
+        depth = len(BARREL_POSES[0])
         for i in range(self.meta.frame_count):
-            for row, _ in self._drawn(self._cells(i)):
-                self.assertEqual(int(row), self.rows // 2)
+            drawn = self._drawn(self._cells(i))
+            # The sprite hangs above the line: its last row lands on it, never below.
+            self.assertEqual(int(drawn[:, 0].max()), self.rows // 2)
+            self.assertEqual(int(drawn[:, 0].min()), self.rows // 2 - depth + 1)
 
     def test_the_track_is_travelled_end_to_end(self):
         seen = set()
@@ -349,27 +352,29 @@ class TestRoll(unittest.TestCase):
         self.assertGreater(max(seen), self.cols - 6)
 
     def test_count_barrels_ride_at_once(self):
-        # Three glyphs each, spread far enough apart not to overlap. The track is
-        # kept clear of the edges, where a barrel would be clipped as it leaves.
+        # The track is kept clear of the edges, where a barrel would be clipped as
+        # it leaves, and the barrels are spread far enough apart not to overlap.
+        ink = sum(len(line.replace(" ", "")) for line in BARREL_POSES[0])
         for i in range(self.meta.frame_count):
-            drawn = self._drawn(self._cells(i, x0=0.1, x1=0.8, count=3))
-            self.assertEqual(len(drawn), 9)
+            drawn = self._drawn(self._cells(i, x0=0.15, x1=0.85, count=3))
+            self.assertEqual(len(drawn), 3 * ink)
 
     def test_a_sloped_track_descends(self):
         rows_at = []
         for i in range(self.meta.frame_count):
-            drawn = self._drawn(self._cells(i, y0=0.1, y1=0.9, count=1))
+            drawn = self._drawn(self._cells(i, y0=0.35, y1=0.95, count=1))
             if len(drawn):
                 rows_at.append((int(drawn[0][1]), int(drawn[0][0])))
         rows_at.sort()
         self.assertLess(rows_at[0][1], rows_at[-1][1])
 
+
     def test_it_loops(self):
         base = ramp("shade")
-        atlas = sort_by_ink(build_atlas(base + "()|/\\", CELL_W, CELL_H), limit=len(base))
+        atlas = sort_by_ink(build_atlas(base + "()|", CELL_W, CELL_H), limit=len(base))
         meta = Meta("t", self.cols, self.rows, 10, 1.0, atlas.charset, ramp_size=len(base))
         check = LoopCheck()
-        effect = Roll(x0=0.05, y0=0.2, x1=0.9, y1=0.8, count=2, cycles=2, spins=5)
+        effect = Roll(x0=0.1, y0=0.4, x1=0.9, y1=0.9, count=2, cycles=2, spins=5)
         for i in range(meta.frame_count):
             cells = cells_from_field(self.field)
             effect.apply(cells, Context(meta=meta, frame=i, field=self.field))
@@ -379,8 +384,9 @@ class TestRoll(unittest.TestCase):
         self.assertTrue(check.ok(), check.report())
 
     def test_the_glyphs_it_needs_are_declared(self):
-        for ch in "()|/\\":
-            self.assertIn(ch, charset_extra([Roll()]))
+        drawn = {ch for pose in BARREL_POSES for line in pose for ch in line} - {" "}
+        declared = set(charset_extra([Roll()]))
+        self.assertEqual(drawn - declared, set())
 
 
 class TestLoopSeamlessness(unittest.TestCase):

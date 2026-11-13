@@ -248,9 +248,25 @@ asciibg arcade.png --cols 240 --rows 60 --offset-y -1 \
 Each barrel's position is the loop phase plus its own share of the track, taken
 modulo one, so at the end of the loop every one of them stands exactly where it
 started: the wrap costs nothing, whatever `count` and `cycles` are. `spins` turns the
-band inside the barrel as it travels, which is what makes it read as rolling rather
-than sliding, and `lift` raises it off the line, since a barrel sits on top of a
-girder rather than inside it.
+staves inside the barrel as it travels, which is what makes it read as rolling rather
+than sliding, and `lift` is the gap between the track and the bottom of the sprite,
+since a barrel sits on top of a girder rather than inside it.
+
+Two things decide whether it reads at all:
+
+- **Draw it at the scale the picture draws one.** The barrels stacked beside Donkey
+  Kong measure about ten cells across and six deep on a 240x60 grid, so the sprite is
+  eleven by five. A three-character sprite on the same grid is a bead, not the same
+  object rolling.
+- **Keep the travel per frame near a cell.** Motion is only motion if consecutive
+  frames overlap. Crossing a 240-cell screen in a 360-frame loop gives 1.3 cells per
+  frame at `cycles=2` and 63 distinct barrel layouts over the loop, which is smooth;
+  `cycles=6` gives 4 cells and 29 layouts, which is fast but still reads. Push it to
+  `cycles=60`, a crossing every six frames, and the loop holds **three** distinct
+  layouts: the barrel jumps a sixth of the screen per frame, so it strobes between a
+  few fixed positions instead of travelling. The loop check will not catch this —
+  it reports seamless at a ratio of 1.00, because every frame is as unlike its
+  neighbour as the wrap is.
 
 Finding a track in a picture is a measurement, not a guess. A girder has a colour of
 its own, so mask for it — `(r > 0.35) & (b > 0.25) & (g < r * 0.7)` picks out magenta
