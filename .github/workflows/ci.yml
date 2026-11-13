@@ -14,8 +14,13 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        python: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python: ["3.10", "3.11", "3.12", "3.13"]
         include:
+          # ubuntu-latest is Ubuntu 26.04, whose runner image carries no 3.9, so the
+          # oldest version this package claims to support is tested on the last image
+          # that has one. Drop this entry only by raising requires-python with it.
+          - os: ubuntu-22.04
+            python: "3.9"
           # One run each on the other platforms: font discovery is the part most
           # likely to differ, and it is the part a new user hits first.
           - os: macos-latest
