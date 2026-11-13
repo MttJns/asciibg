@@ -26,6 +26,11 @@ classifiers = [
     "Topic :: Multimedia :: Video",
 ]
 
+[project.urls]
+Homepage = "https://github.com/MttJns/asciibg"
+Source = "https://github.com/MttJns/asciibg"
+Issues = "https://github.com/MttJns/asciibg/issues"
+
 [project.scripts]
 asciibg = "asciibg.cli:main"
 

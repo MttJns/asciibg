@@ -17,13 +17,13 @@ asciibg photo.jpg --loop 12 --center-dim 0.5 -o out
 ## Install
 
 ```bash
-pip install git+https://github.com/YOUR-USER/asciibg.git
+pip install git+https://github.com/MttJns/asciibg.git
 ```
 
 Or from a clone, for hacking on it:
 
 ```bash
-git clone https://github.com/YOUR-USER/asciibg.git
+git clone https://github.com/MttJns/asciibg.git
 cd asciibg
 python3 -m venv .venv && .venv/bin/pip install -e .
 ```
