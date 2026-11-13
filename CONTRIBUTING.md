@@ -44,10 +44,10 @@ Two things worth knowing before you write a new one:
   That is why `sparkle` scales where `twinkle` adds.
 - An effect that displaces cells should sample `ctx.field`, the quantised original,
   rather than the running frame. Sampling the running frame smears.
-- An effect that draws *shapes* needs glyphs the brightness ramp has no room for.
-  Declare them in a `charset_extra` class attribute, as `roll` does, or
-  `ctx.meta.charset.find` returns -1 and the sprite silently draws nothing. Build the
-  atlas with those extras in its test too, or the test passes on an empty frame.
+- An effect that moves part of the picture should lift it from `ctx.field` once and
+  blank where it came from, as `roll` does. Deriving its starting place from the box
+  rather than taking it as a parameter makes frame 0 the untouched picture, which a
+  test can assert exactly.
 
 ## House style
 

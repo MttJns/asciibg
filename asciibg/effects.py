@@ -302,85 +302,86 @@ class Flag(Effect):
             cells.rgb[y0:y1, x] = source.rgb[src, x]
 
 
-# A barrel at the scale the picture draws one: the stacked barrels beside Donkey Kong
-# measure about ten cells across and six deep on a 240x60 grid, so a sprite any
-# smaller reads as a bead rather than as the same object rolling.
-#
-# The staves are what turn. Three of them sit every third column of a nine-wide body,
-# and each pose shifts them one column on, so the set wraps back to where it began
-# after three poses and the barrel keeps the same number of staves throughout. A
-# cycle that gained or lost one would read as flicker rather than as rotation.
-BARREL_BODY = ("|==", "=|=", "==|")
-BARREL_POSES = tuple(
-    (
-        " ========= ",
-        f"({body * 3})",
-        f"({body * 3})",
-        f"({body * 3})",
-        " ========= ",
-    )
-    for body in BARREL_BODY
-)
-
-
 @dataclass
 class Roll(Effect):
-    """Barrels rolling along a girder, as Donkey Kong throws them.
+    """Send a barrel the picture already contains rolling along a girder.
 
-    The track is a straight line from (`x0`, `y0`) to (`x1`, `y1`), in fractions of
-    the grid, and `count` barrels ride it evenly spaced. Each one's position is the
-    loop phase plus its own share of the track, taken modulo one, so at the end of
-    the loop every barrel stands exactly where it started and the wrap costs nothing.
+    Nothing is drawn. The cells inside the home box are lifted out of the quantised
+    original and carried, so what rolls is the artwork's own barrel rather than a
+    sprite that merely resembles one, and it keeps the colour and the shape the
+    picture gave it. The box is blanked where the barrel was, because a barrel that
+    has rolled away is no longer where it started.
 
-    Drawn as characters rather than brightness, so `charset_extra` asks for glyphs
-    the ramp has no room for. `lift` is the gap in cells between the track and the
-    bottom of the sprite, since a barrel sits on top of a girder rather than in it.
+    `left`, `right`, `top` and `bottom` are the home box in fractions of the grid,
+    and the track runs from (`x0`, `y0`) to (`x1`, `y1`). Where the barrel sits on
+    that track, and how high above it, are both read from the box rather than given,
+    so at phase 0 the barrel is exactly where the picture put it and the first frame
+    of the loop is the untouched image.
     """
 
-    charset_extra = "()|="
-
+    left: float = 0.0
+    right: float = 0.05
+    top: float = 0.0
+    bottom: float = 0.1
     x0: float = 0.0
     y0: float = 0.5
     x1: float = 1.0
     y1: float = 0.5
-    count: float = 3.0
     cycles: float = 1.0
-    spins: float = 10.0
-    lift: float = 1.0
-    r: float = 1.0
-    g: float = 0.62
-    b: float = 0.24
+    floor: float = 0.15
+
+    def __post_init__(self) -> None:
+        self._cut: Dict[int, tuple] = {}
+
+    def _track(self, t: float, rows: int, cols: int) -> tuple:
+        return ((self.x0 + (self.x1 - self.x0) * t) * cols,
+                (self.y0 + (self.y1 - self.y0) * t) * rows)
+
+    def _barrel(self, ctx: Context, rows: int, cols: int) -> tuple:
+        """Lift the barrel once: its cells, and where it stands on the track."""
+        key = id(ctx.meta)
+        if key not in self._cut:
+            bx0, bx1 = int(round(self.left * cols)), int(round(self.right * cols))
+            by0, by1 = int(round(self.top * rows)), int(round(self.bottom * rows))
+            bx0, bx1 = max(0, bx0), min(cols, bx1)
+            by0, by1 = max(0, by0), min(rows, by1)
+            level = ctx.field.level[by0:by1, bx0:bx1].copy()
+            rgb = ctx.field.rgb[by0:by1, bx0:bx1].copy()
+            # Anything near black in the box is the background showing through, not
+            # barrel, and carrying it would drag a black rectangle along the girder.
+            mask = level > self.floor
+            span = (self.x1 - self.x0) or 1e-6
+            t0 = ((bx0 + bx1) / 2.0 / cols - self.x0) / span
+            at_x, at_y = self._track(t0, rows, cols)
+            self._cut[key] = (by0, by1, bx0, bx1, level, rgb, mask,
+                              t0, bx0 - at_x, by0 - at_y)
+        return self._cut[key]
 
     def apply(self, cells: Cells, ctx: Context) -> None:
+        if ctx.field is None:
+            return
         rows, cols = cells.level.shape
-        n = max(1, int(round(self.count)))
-        k = max(1.0, round(self.cycles))
-        colour = np.array([self.r, self.g, self.b], dtype=np.float32)
+        by0, by1, bx0, bx1, level, rgb, mask, t0, dx, dy = self._barrel(ctx, rows, cols)
+        if not mask.any():
+            return
 
-        for i in range(n):
-            t = (k * ctx.phase + i / n) % 1.0
-            x = (self.x0 + (self.x1 - self.x0) * t) * cols
-            y = (self.y0 + (self.y1 - self.y0) * t) * rows - self.lift
-            pose = BARREL_POSES[int(t * max(1.0, round(self.spins)) * len(BARREL_POSES))
-                                % len(BARREL_POSES)]
-            # The track is the ground the barrel rests on, so the sprite hangs above
-            # it: its last line lands on the lifted row and the rest stack upwards.
-            base = int(round(y)) - (len(pose) - 1)
-            start = int(round(x)) - len(pose[0]) // 2
-            for dy, line in enumerate(pose):
-                row = base + dy
-                if not 0 <= row < rows:
-                    continue
-                for dx, ch in enumerate(line):
-                    col = start + dx
-                    if ch == " " or not 0 <= col < cols:
-                        continue
-                    index = ctx.meta.charset.find(ch)
-                    if index < 0:
-                        continue
-                    cells.char[row, col] = index
-                    cells.level[row, col] = 1.0
-                    cells.rgb[row, col] = colour
+        cells.level[by0:by1, bx0:bx1][mask] = 0.0
+        cells.rgb[by0:by1, bx0:bx1][mask] = 0.0
+
+        t = (t0 + max(1.0, round(self.cycles)) * ctx.phase) % 1.0
+        at_x, at_y = self._track(t, rows, cols)
+        x, y = int(round(at_x + dx)), int(round(at_y + dy))
+
+        h, w = mask.shape
+        sy0, sx0 = max(0, -y), max(0, -x)
+        sy1, sx1 = min(h, rows - y), min(w, cols - x)
+        if sy1 <= sy0 or sx1 <= sx0:
+            return
+        patch = mask[sy0:sy1, sx0:sx1]
+        rows_to = slice(y + sy0, y + sy1)
+        cols_to = slice(x + sx0, x + sx1)
+        cells.level[rows_to, cols_to][patch] = level[sy0:sy1, sx0:sx1][patch]
+        cells.rgb[rows_to, cols_to][patch] = rgb[sy0:sy1, sx0:sx1][patch]
 
 
 EFFECTS = {"glint": Glint, "scan": Scan, "drift": Drift, "twinkle": Twinkle,
@@ -403,13 +404,3 @@ def parse_effect(spec: str) -> Effect:
 def parse_effects(specs: List[str]) -> List[Effect]:
     """Build a list of effects from CLI specs, applied in order."""
     return [parse_effect(s) for s in specs]
-
-
-def charset_extra(effects: List[Effect]) -> str:
-    """Characters the effects draw with that a brightness ramp would not carry."""
-    seen = ""
-    for effect in effects:
-        for ch in getattr(effect, "charset_extra", ""):
-            if ch not in seen:
-                seen += ch
-    return seen

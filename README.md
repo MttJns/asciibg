@@ -235,44 +235,43 @@ line.
 
 ### Barrels down a girder
 
-`roll` rides `count` sprites along a straight track from (`x0`, `y0`) to (`x1`, `y1`),
-in fractions of the grid. It draws characters rather than brightness, so it declares
-the glyphs it needs in `charset_extra` and the CLI puts them in the atlas before the
-ramp is built:
+`roll` sends a barrel the picture already contains rolling along a girder. Nothing is
+drawn: the cells inside the home box are lifted out of the quantised original and
+carried, so what rolls is the artwork's own barrel, with the colour and shape the
+picture gave it. The box is blanked where the barrel was, because a barrel that has
+rolled away is no longer where it started.
 
 ```bash
 asciibg arcade.png --cols 240 --rows 60 --offset-y -1 \
-  --effect "roll:x0=0,y0=0.667,x1=0.925,y1=0.700,count=3,cycles=2,spins=12"
+  --effect "roll:left=0.308,right=0.354,top=0.583,bottom=0.650,\
+x0=0,y0=0.667,x1=0.925,y1=0.700,cycles=6"
 ```
 
-Each barrel's position is the loop phase plus its own share of the track, taken
-modulo one, so at the end of the loop every one of them stands exactly where it
-started: the wrap costs nothing, whatever `count` and `cycles` are. `spins` turns the
-staves inside the barrel as it travels, which is what makes it read as rolling rather
-than sliding, and `lift` is the gap between the track and the bottom of the sprite,
-since a barrel sits on top of a girder rather than inside it.
+`left`, `right`, `top` and `bottom` are the home box and the track runs from
+(`x0`, `y0`) to (`x1`, `y1`), all in fractions of the grid. Where the barrel sits on
+the track, and how high above it, are read from the box rather than given, so **frame
+0 is the untouched picture** — a useful thing to assert in a test, and the reason one
+effect instance carries one barrel.
 
-Two things decide whether it reads at all:
+Finding the barrels is a measurement. They have a colour of their own, so mask for it
+and take connected components: on the Donkey Kong 25m screen,
+`(r > 0.45) & (g > 0.20) & (g < r*0.85) & (b < g*0.8)` with a two-column gap
+tolerance separates the four rolling barrels from the stack, from the oil drum and
+from Donkey Kong himself, and each component's bounding box is the home box. Use the
+box tight: every cell inside these four is barrel, so `floor` never has to discard
+anything, but a looser box would drag a rectangle of background along the girder.
 
-- **Draw it at the scale the picture draws one.** The barrels stacked beside Donkey
-  Kong measure about ten cells across and six deep on a 240x60 grid, so the sprite is
-  eleven by five. A three-character sprite on the same grid is a bead, not the same
-  object rolling.
-- **Keep the travel per frame near a cell.** Motion is only motion if consecutive
-  frames overlap. Crossing a 240-cell screen in a 360-frame loop gives 1.3 cells per
-  frame at `cycles=2` and 63 distinct barrel layouts over the loop, which is smooth;
-  `cycles=6` gives 4 cells and 29 layouts, which is fast but still reads. Push it to
-  `cycles=60`, a crossing every six frames, and the loop holds **three** distinct
-  layouts: the barrel jumps a sixth of the screen per frame, so it strobes between a
-  few fixed positions instead of travelling. The loop check will not catch this —
-  it reports seamless at a ratio of 1.00, because every frame is as unlike its
-  neighbour as the wrap is.
+Finding a track is the same kind of measurement. A girder has its own colour too —
+`(r > 0.35) & (b > 0.25) & (g < r * 0.7)` picks out magenta beams — so read the
+topmost masked row per column at each end of its span. The sign of the slope is also
+the direction of travel: barrels roll downhill, so swap the endpoints when the right
+end is the higher one.
 
-Finding a track in a picture is a measurement, not a guess. A girder has a colour of
-its own, so mask for it — `(r > 0.35) & (b > 0.25) & (g < r * 0.7)` picks out magenta
-beams — and read the topmost masked row per column at each end of its span. The sign
-of the slope is also the direction of travel: barrels roll downhill, so swap the
-endpoints when the right end is the higher one.
+Keep the travel per frame near a cell or two. Motion is only motion if consecutive
+frames overlap, and the loop check cannot see the difference: a barrel jumping a
+sixth of the screen per frame strobes between a handful of fixed positions, and the
+check still calls it seamless at a ratio of 1.00, because every frame is as unlike
+its neighbour as the wrap is.
 
 ### Shrinking a subject: zoom below 1
 

@@ -12,8 +12,7 @@ from PIL import Image
 
 from asciibg.check import LoopCheck
 from asciibg.effects import (
-    BARREL_POSES, Drift, Flag, Glint, Roll, Scan, Sparkle, Twinkle, charset_extra,
-    parse_effect, parse_effects,
+    Drift, Flag, Glint, Roll, Scan, Sparkle, Twinkle, parse_effect, parse_effects,
 )
 from asciibg.piece import Context, Field, Meta, cells_from_field, resolve_chars
 from asciibg.quantize import (
@@ -314,79 +313,83 @@ class TestEffectSpecs(unittest.TestCase):
 
 
 class TestRoll(unittest.TestCase):
-    """Barrels ride the track, and there are always `count` of them on it."""
+    """It carries the picture's own barrel rather than drawing one."""
 
     def setUp(self):
         self.rows, self.cols = 20, 60
-        self.field = Field(
-            level=np.zeros((self.rows, self.cols), dtype=np.float32),
-            rgb=np.zeros((self.rows, self.cols, 3), dtype=np.float32),
-        )
-        # The ramp alone has no brackets, so the sprite would silently draw nothing.
-        self.charset = ramp("shade") + "()|"
-        self.meta = Meta("t", self.cols, self.rows, 10, 1.0, self.charset,
-                         ramp_size=len(ramp("shade")))
+        level = np.zeros((self.rows, self.cols), dtype=np.float32)
+        rgb = np.zeros((self.rows, self.cols, 3), dtype=np.float32)
+        level[6:10, 4:10] = 0.9          # the barrel, at home near the left
+        rgb[6:10, 4:10] = (1.0, 0.5, 0.0)
+        level[12, :] = 0.4               # a girder for it to run along
+        self.field = Field(level=level, rgb=rgb)
+        self.meta = Meta("t", self.cols, self.rows, 10, 1.0, ramp("shade"))
+        self.home = {"left": 4 / 60, "right": 10 / 60, "top": 6 / 20, "bottom": 10 / 20}
 
     def _cells(self, frame, **kw):
-        kw = {"x0": 0.0, "y0": 0.5, "x1": 1.0, "y1": 0.5, "count": 2, "lift": 0, **kw}
+        kw = {"x0": 0.0, "y0": 0.6, "x1": 1.0, "y1": 0.6, "cycles": 1, **self.home, **kw}
         cells = cells_from_field(self.field)
         Roll(**kw).apply(cells, Context(meta=self.meta, frame=frame, field=self.field))
         return cells
 
-    def _drawn(self, cells):
-        return np.argwhere(cells.char >= 0)
+    def _barrel_cols(self, cells):
+        lit = np.argwhere((cells.level > 0.5) & (cells.rgb[..., 1] > 0.1))
+        return (int(lit[:, 1].min()), int(lit[:, 1].max())) if len(lit) else None
 
-    def test_barrels_rest_on_the_track(self):
-        depth = len(BARREL_POSES[0])
-        for i in range(self.meta.frame_count):
-            drawn = self._drawn(self._cells(i))
-            # The sprite hangs above the line: its last row lands on it, never below.
-            self.assertEqual(int(drawn[:, 0].max()), self.rows // 2)
-            self.assertEqual(int(drawn[:, 0].min()), self.rows // 2 - depth + 1)
+    def test_the_first_frame_is_the_untouched_picture(self):
+        # The barrel's place on the track is read from the box, not given, so phase 0
+        # has to put it back exactly where the picture had it.
+        np.testing.assert_array_equal(self._cells(0).level, self.field.level)
+        np.testing.assert_array_equal(self._cells(0).rgb, self.field.rgb)
+
+    def test_it_leaves_no_barrel_behind(self):
+        # Once it has rolled clear, nothing of it may remain at home.
+        for i in range(1, self.meta.frame_count):
+            cells = self._cells(i)
+            here = self._barrel_cols(cells)
+            if here is not None and here[0] > 10:
+                np.testing.assert_array_equal(cells.level[6:10, 4:10], 0.0)
+                return
+        self.fail("the barrel never rolled clear of its home")
 
     def test_the_track_is_travelled_end_to_end(self):
-        seen = set()
-        for i in range(self.meta.frame_count):
-            seen.update(int(c) for _, c in self._drawn(self._cells(i)))
-        self.assertLess(min(seen), 5)
-        self.assertGreater(max(seen), self.cols - 6)
+        seen = [self._barrel_cols(self._cells(i)) for i in range(self.meta.frame_count)]
+        seen = [s for s in seen if s is not None]
+        self.assertLess(min(s[0] for s in seen), 4)
+        self.assertGreater(max(s[1] for s in seen), self.cols - 5)
 
-    def test_count_barrels_ride_at_once(self):
-        # The track is kept clear of the edges, where a barrel would be clipped as
-        # it leaves, and the barrels are spread far enough apart not to overlap.
-        ink = sum(len(line.replace(" ", "")) for line in BARREL_POSES[0])
+    def test_it_keeps_the_colour_the_picture_gave_it(self):
         for i in range(self.meta.frame_count):
-            drawn = self._drawn(self._cells(i, x0=0.15, x1=0.85, count=3))
-            self.assertEqual(len(drawn), 3 * ink)
+            cells = self._cells(i)
+            lit = cells.rgb[(cells.level > 0.5) & (cells.rgb[..., 1] > 0.1)]
+            if len(lit):
+                np.testing.assert_allclose(lit, np.broadcast_to((1.0, 0.5, 0.0), lit.shape), atol=1e-6)
 
     def test_a_sloped_track_descends(self):
-        rows_at = []
+        at = []
         for i in range(self.meta.frame_count):
-            drawn = self._drawn(self._cells(i, y0=0.35, y1=0.95, count=1))
-            if len(drawn):
-                rows_at.append((int(drawn[0][1]), int(drawn[0][0])))
-        rows_at.sort()
-        self.assertLess(rows_at[0][1], rows_at[-1][1])
+            lit = np.argwhere((self._cells(i, y0=0.35, y1=0.9).level > 0.5))
+            if len(lit):
+                at.append((int(lit[:, 1].mean()), int(lit[:, 0].mean())))
+        at.sort()
+        self.assertLess(at[0][1], at[-1][1])
 
+    def test_it_does_nothing_without_a_field_to_lift_from(self):
+        cells = cells_from_field(self.field)
+        Roll(**self.home).apply(cells, Context(meta=self.meta, frame=3))
+        np.testing.assert_array_equal(cells.level, self.field.level)
 
     def test_it_loops(self):
-        base = ramp("shade")
-        atlas = sort_by_ink(build_atlas(base + "()|", CELL_W, CELL_H), limit=len(base))
-        meta = Meta("t", self.cols, self.rows, 10, 1.0, atlas.charset, ramp_size=len(base))
+        atlas = sort_by_ink(build_atlas(ramp("shade"), CELL_W, CELL_H))
+        meta = Meta("t", self.cols, self.rows, 10, 1.0, atlas.charset)
         check = LoopCheck()
-        effect = Roll(x0=0.1, y0=0.4, x1=0.9, y1=0.9, count=2, cycles=2, spins=5)
+        effect = Roll(x0=0.0, y0=0.4, x1=1.0, y1=0.9, cycles=2, **self.home)
         for i in range(meta.frame_count):
             cells = cells_from_field(self.field)
             effect.apply(cells, Context(meta=meta, frame=i, field=self.field))
-            chars = resolve_chars(cells, len(base), atlas.size)
-            check.add(render_frame(chars, cells.rgb, atlas))
-        self.assertGreater(check.step_delta, 0.0, "nothing was drawn")
+            check.add(render_frame(resolve_chars(cells, atlas.size), cells.rgb, atlas))
+        self.assertGreater(check.step_delta, 0.0, "nothing moved")
         self.assertTrue(check.ok(), check.report())
-
-    def test_the_glyphs_it_needs_are_declared(self):
-        drawn = {ch for pose in BARREL_POSES for line in pose for ch in line} - {" "}
-        declared = set(charset_extra([Roll()]))
-        self.assertEqual(drawn - declared, set())
 
 
 class TestLoopSeamlessness(unittest.TestCase):
