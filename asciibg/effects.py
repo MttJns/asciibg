@@ -302,7 +302,70 @@ class Flag(Effect):
             cells.rgb[y0:y1, x] = source.rgb[src, x]
 
 
-EFFECTS = {"glint": Glint, "scan": Scan, "drift": Drift, "twinkle": Twinkle, "sparkle": Sparkle, "flag": Flag}
+# A barrel seen side on is an oval with a band around it. Four poses turn that band
+# through half a revolution, which is as far as it can go before it looks the same
+# again, so the glyph cycle reads as rolling rather than as flickering.
+BARREL_POSES = ("(|)", "(/)", "(-)", "(\\)")
+
+
+@dataclass
+class Roll(Effect):
+    """Barrels rolling along a girder, as Donkey Kong throws them.
+
+    The track is a straight line from (`x0`, `y0`) to (`x1`, `y1`), in fractions of
+    the grid, and `count` barrels ride it evenly spaced. Each one's position is the
+    loop phase plus its own share of the track, taken modulo one, so at the end of
+    the loop every barrel stands exactly where it started and the wrap costs nothing.
+
+    Drawn as characters rather than brightness, so `charset_extra` asks for glyphs
+    the ramp has no room for. `lift` raises the sprite off the line, in cells, since
+    a barrel sits on top of a girder rather than inside it.
+    """
+
+    charset_extra = "()|/\\-"
+
+    x0: float = 0.0
+    y0: float = 0.5
+    x1: float = 1.0
+    y1: float = 0.5
+    count: float = 3.0
+    cycles: float = 1.0
+    spins: float = 10.0
+    lift: float = 1.0
+    r: float = 1.0
+    g: float = 0.62
+    b: float = 0.24
+
+    def apply(self, cells: Cells, ctx: Context) -> None:
+        rows, cols = cells.level.shape
+        n = max(1, int(round(self.count)))
+        k = max(1.0, round(self.cycles))
+        colour = np.array([self.r, self.g, self.b], dtype=np.float32)
+
+        for i in range(n):
+            t = (k * ctx.phase + i / n) % 1.0
+            x = (self.x0 + (self.x1 - self.x0) * t) * cols
+            y = (self.y0 + (self.y1 - self.y0) * t) * rows - self.lift
+            pose = BARREL_POSES[int(t * max(1.0, round(self.spins)) * len(BARREL_POSES))
+                                % len(BARREL_POSES)]
+            row = int(round(y))
+            if not 0 <= row < rows:
+                continue
+            start = int(round(x)) - len(pose) // 2
+            for dx, ch in enumerate(pose):
+                col = start + dx
+                if not 0 <= col < cols:
+                    continue
+                index = ctx.meta.charset.find(ch)
+                if index < 0:
+                    continue
+                cells.char[row, col] = index
+                cells.level[row, col] = 1.0
+                cells.rgb[row, col] = colour
+
+
+EFFECTS = {"glint": Glint, "scan": Scan, "drift": Drift, "twinkle": Twinkle,
+           "sparkle": Sparkle, "flag": Flag, "roll": Roll}
 
 
 def parse_effect(spec: str) -> Effect:
@@ -321,3 +384,13 @@ def parse_effect(spec: str) -> Effect:
 def parse_effects(specs: List[str]) -> List[Effect]:
     """Build a list of effects from CLI specs, applied in order."""
     return [parse_effect(s) for s in specs]
+
+
+def charset_extra(effects: List[Effect]) -> str:
+    """Characters the effects draw with that a brightness ramp would not carry."""
+    seen = ""
+    for effect in effects:
+        for ch in getattr(effect, "charset_extra", ""):
+            if ch not in seen:
+                seen += ch
+    return seen

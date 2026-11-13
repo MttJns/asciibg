@@ -233,6 +233,31 @@ not blown. Find the box with the picture's own colours: a flag is the reddest th
 in a seascape, so `rgb[..., 0] - (rgb[..., 1] + rgb[..., 2]) / 2` locates it in a
 line.
 
+### Barrels down a girder
+
+`roll` rides `count` sprites along a straight track from (`x0`, `y0`) to (`x1`, `y1`),
+in fractions of the grid. It draws characters rather than brightness, so it declares
+the glyphs it needs in `charset_extra` and the CLI puts them in the atlas before the
+ramp is built:
+
+```bash
+asciibg arcade.png --cols 240 --rows 60 --offset-y -1 \
+  --effect "roll:x0=0,y0=0.667,x1=0.925,y1=0.700,count=3,cycles=2,spins=12"
+```
+
+Each barrel's position is the loop phase plus its own share of the track, taken
+modulo one, so at the end of the loop every one of them stands exactly where it
+started: the wrap costs nothing, whatever `count` and `cycles` are. `spins` turns the
+band inside the barrel as it travels, which is what makes it read as rolling rather
+than sliding, and `lift` raises it off the line, since a barrel sits on top of a
+girder rather than inside it.
+
+Finding a track in a picture is a measurement, not a guess. A girder has a colour of
+its own, so mask for it — `(r > 0.35) & (b > 0.25) & (g < r * 0.7)` picks out magenta
+beams — and read the topmost masked row per column at each end of its span. The sign
+of the slope is also the direction of travel: barrels roll downhill, so swap the
+endpoints when the right end is the higher one.
+
 ### Shrinking a subject: zoom below 1
 
 `--zoom` below 1 makes the window larger than the image, so the subject shrinks and

@@ -12,7 +12,8 @@ from PIL import Image
 
 from asciibg.check import LoopCheck
 from asciibg.effects import (
-    Drift, Flag, Glint, Scan, Sparkle, Twinkle, parse_effect, parse_effects,
+    Drift, Flag, Glint, Roll, Scan, Sparkle, Twinkle, charset_extra, parse_effect,
+    parse_effects,
 )
 from asciibg.piece import Context, Field, Meta, cells_from_field, resolve_chars
 from asciibg.quantize import (
@@ -310,6 +311,76 @@ class TestEffectSpecs(unittest.TestCase):
     def test_rejects_unknown_effect(self):
         with self.assertRaises(ValueError):
             parse_effects(["kenburns"])
+
+
+class TestRoll(unittest.TestCase):
+    """Barrels ride the track, and there are always `count` of them on it."""
+
+    def setUp(self):
+        self.rows, self.cols = 20, 60
+        self.field = Field(
+            level=np.zeros((self.rows, self.cols), dtype=np.float32),
+            rgb=np.zeros((self.rows, self.cols, 3), dtype=np.float32),
+        )
+        # The ramp alone has no brackets, so the sprite would silently draw nothing.
+        self.charset = ramp("shade") + "()|/\\"
+        self.meta = Meta("t", self.cols, self.rows, 10, 1.0, self.charset,
+                         ramp_size=len(ramp("shade")))
+
+    def _cells(self, frame, **kw):
+        kw = {"x0": 0.0, "y0": 0.5, "x1": 1.0, "y1": 0.5, "count": 2, "lift": 0, **kw}
+        cells = cells_from_field(self.field)
+        Roll(**kw).apply(cells, Context(meta=self.meta, frame=frame, field=self.field))
+        return cells
+
+    def _drawn(self, cells):
+        return np.argwhere(cells.char >= 0)
+
+    def test_barrels_sit_on_the_track(self):
+        for i in range(self.meta.frame_count):
+            for row, _ in self._drawn(self._cells(i)):
+                self.assertEqual(int(row), self.rows // 2)
+
+    def test_the_track_is_travelled_end_to_end(self):
+        seen = set()
+        for i in range(self.meta.frame_count):
+            seen.update(int(c) for _, c in self._drawn(self._cells(i)))
+        self.assertLess(min(seen), 5)
+        self.assertGreater(max(seen), self.cols - 6)
+
+    def test_count_barrels_ride_at_once(self):
+        # Three glyphs each, spread far enough apart not to overlap. The track is
+        # kept clear of the edges, where a barrel would be clipped as it leaves.
+        for i in range(self.meta.frame_count):
+            drawn = self._drawn(self._cells(i, x0=0.1, x1=0.8, count=3))
+            self.assertEqual(len(drawn), 9)
+
+    def test_a_sloped_track_descends(self):
+        rows_at = []
+        for i in range(self.meta.frame_count):
+            drawn = self._drawn(self._cells(i, y0=0.1, y1=0.9, count=1))
+            if len(drawn):
+                rows_at.append((int(drawn[0][1]), int(drawn[0][0])))
+        rows_at.sort()
+        self.assertLess(rows_at[0][1], rows_at[-1][1])
+
+    def test_it_loops(self):
+        base = ramp("shade")
+        atlas = sort_by_ink(build_atlas(base + "()|/\\", CELL_W, CELL_H), limit=len(base))
+        meta = Meta("t", self.cols, self.rows, 10, 1.0, atlas.charset, ramp_size=len(base))
+        check = LoopCheck()
+        effect = Roll(x0=0.05, y0=0.2, x1=0.9, y1=0.8, count=2, cycles=2, spins=5)
+        for i in range(meta.frame_count):
+            cells = cells_from_field(self.field)
+            effect.apply(cells, Context(meta=meta, frame=i, field=self.field))
+            chars = resolve_chars(cells, len(base), atlas.size)
+            check.add(render_frame(chars, cells.rgb, atlas))
+        self.assertGreater(check.step_delta, 0.0, "nothing was drawn")
+        self.assertTrue(check.ok(), check.report())
+
+    def test_the_glyphs_it_needs_are_declared(self):
+        for ch in "()|/\\":
+            self.assertIn(ch, charset_extra([Roll()]))
 
 
 class TestLoopSeamlessness(unittest.TestCase):

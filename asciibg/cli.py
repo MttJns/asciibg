@@ -11,7 +11,7 @@ from typing import List, Sequence, Tuple
 import numpy as np
 
 from .check import LoopCheck, contact_sheet
-from .effects import parse_effects
+from .effects import charset_extra, parse_effects
 from .encode import Mp4Writer, mp4_to_gif, probe, save_png
 from .piece import Context, Meta, cells_from_field, resolve_chars
 from .prompt import scene_from_prompt
@@ -165,9 +165,16 @@ def run(args: argparse.Namespace) -> int:
     mp4_path, gif_path = out_dir / f"{name}.mp4", out_dir / f"{name}.gif"
     png_path, sheet_path = out_dir / f"{name}.png", out_dir / f"{name}-sheet.png"
 
+    effects = parse_effects(args.effects) if args.effects else (
+        [] if scene is not None else parse_effects(["glint", "drift"])
+    )
+
     ramp_name = args.ramp or getattr(scene, "ramp_name", None) or DEFAULT_RAMP
     base_ramp = ramp(ramp_name)
-    extra = "".join(c for c in getattr(scene, "charset_extra", "") if c not in base_ramp)
+    # Effects that draw characters, not brightness, need their glyphs in the atlas
+    # too, so they are parsed before it is built.
+    wanted = getattr(scene, "charset_extra", "") + charset_extra(effects)
+    extra = "".join(c for c in dict.fromkeys(wanted) if c not in base_ramp)
     atlas = build_atlas(base_ramp + extra, cell_w, cell_h, font=args.font,
                         font_index=args.font_index, font_size=args.font_size)
     if args.sort_ramp:
@@ -190,10 +197,6 @@ def run(args: argparse.Namespace) -> int:
             center_dim=args.center_dim,
         )
         dim = None
-
-    effects = parse_effects(args.effects) if args.effects else (
-        [] if scene is not None else parse_effects(["glint", "drift"])
-    )
 
     total = meta.frame_count
     say(f"{name}: {args.cols}x{args.rows} cells, {cell_w}x{cell_h} px each, "
