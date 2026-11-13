@@ -4,6 +4,13 @@ Seamlessly looping ASCII animations, exported as an MP4 for video-call backgroun
 and a GIF for the web. Start from your own photo, from one of six procedural scenes,
 or from a sentence describing what you want.
 
+![Four barrels rolling down the girders of an arcade screen, drawn in coloured ASCII](https://raw.githubusercontent.com/MttJns/asciibg/main/docs/demo.gif)
+
+A 240×60 grid over an arcade screenshot. The four barrels are not drawn on top: they
+are lifted out of the artwork itself and carried down their girders, so frame 0 is the
+untouched picture — see [barrels down a girder](#barrels-down-a-girder). Source screen
+from *Donkey Kong* (Nintendo, 1981), reproduced here only to demonstrate the tool.
+
 The look follows [ascii.rest](https://ascii.rest): the art is quantised once into a
 fixed grid of characters, and motion is a layer over the top. Every loop closes
 exactly — frame *N* is never rendered, because it *is* frame 0.
@@ -248,9 +255,13 @@ picture gave it. The box is blanked where the barrel was, because a barrel that 
 rolled away is no longer where it started.
 
 ```bash
-asciibg arcade.png --cols 240 --rows 60 --offset-y -1 \
-  --effect "roll:left=0.308,right=0.354,top=0.583,bottom=0.650,\
-x0=0,y0=0.667,x1=0.925,y1=0.700,cycles=6"
+# One --effect per barrel. These two ride the middle girder, which falls to the
+# right; the other two ride the lower one, which falls to the left. The gif at
+# the top of this page is this command with all four.
+asciibg arcade.png --cols 240 --rows 60 --offset-y -1 --loop 8 \
+  --no-sky-fill --value-boost 0.35 --saturation 1.15 \
+  --effect "roll:left=0.3083,right=0.3542,top=0.5833,bottom=0.6500,x0=0,y0=0.667,x1=0.925,y1=0.700,cycles=1" \
+  --effect "roll:left=0.8250,right=0.8708,top=0.6167,bottom=0.6833,x0=0,y0=0.667,x1=0.925,y1=0.700,cycles=1"
 ```
 
 `left`, `right`, `top` and `bottom` are the home box and the track runs from
