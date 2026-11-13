@@ -1,4 +1,4 @@
-# asciibg
+# asciibg - subtle animated video conference backgrounds
 
 Seamlessly looping ASCII animations, exported as an MP4 for video-call backgrounds
 and a GIF for the web. Start from your own photo, from one of six procedural scenes,
